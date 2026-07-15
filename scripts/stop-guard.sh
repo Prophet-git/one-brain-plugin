@@ -41,5 +41,5 @@ fi
 MARK="$PDIR/reminded-$SESSION"
 [ -e "$MARK" ] && exit 0
 printf '' > "$MARK" 2>/dev/null
-printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Hay trabajo en esta sesión sin registrar en One Brain. Cuando cierres (o si decís algo tipo \\"listo/gracias\\"), activá la skill session-capture: destilá el avance, proponémelo y guardalo con brain_save."}}'
+printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Hay trabajo en esta sesión sin registrar en One Brain. Al cerrar (o si decís algo tipo \\"listo/gracias\\"): (1) guardá los avances/decisiones con la skill session-capture (destilá, proponé, guardá con brain_save); (2) si quedó trabajo a medio hacer, dejá un handoff con la skill handoff para retomarlo en la próxima sesión."}}'
 exit 0

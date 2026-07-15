@@ -42,6 +42,12 @@ Guardá con `brain_save` **apenas se cierra algo con señal — no solo al final
 - Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
 - **NO** guardes trivialidades, pasos intermedios ni datos personales sensibles.
 
+## Continuidad de sesión (OBLIGATORIO — esto nos distingue)
+One Brain te da continuidad entre sesiones. No la desperdicies —la mayoría de la gente arranca cada sesión de cero y llena el contexto al pedo; nosotros no:
+- **Al abrir**: si el arranque te trae un handoff de la última sesión (empieza con "⏸️ Tenés un handoff…"), **RETOMÁ desde ahí**. Leelo, resumí en 2 líneas dónde quedó y cuál es el próximo paso, y seguí. NO re-explores lo que el handoff ya resolvió.
+- **Al cerrar, o cuando el contexto se está llenando**: si quedó trabajo a medio hacer (una tarea en progreso, un próximo paso claro), dejá un **handoff** con la skill `handoff` antes de terminar. Es lo que te deja retomar la próxima vez. Es distinto de guardar avances: el handoff es "dónde quedé y qué sigue", no "qué logré".
+- Si la sesión se pone larga y el contexto se llena, **proponé vos**: "conviene que deje un handoff y arranquemos fresco para no perder calidad". No esperes a que el modelo degrade.
+
 ## Niveles y confidencialidad
 Las entradas tienen nivel (1 dirección / 2 gerencia / 3 general). El server solo te devuelve lo que el nivel del usuario permite y lo hace cumplir — no intentes rodearlo. Si un dato no aparece porque es de nivel superior, tratalo como **inexistente**: respondé "no tengo registro de eso", NO "no te lo puedo decir" (que confirmaría que existe).
 

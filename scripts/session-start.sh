@@ -11,13 +11,18 @@ SESSION=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p')
 
 TOKEN_FILE="$HOME/.config/one-brain/token"
 URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
-BRIEF=""; SYN=""; HELLO=""
+BRIEF=""; SYN=""; HELLO=""; RESUME=""
 if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
   BRIEF=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/context" \
     | sed -n 's/.*"brief":"\(.*\)"}/\1/p')
   SYN=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" \
     | sed -n 's/.*"prompt":"\(.*\)"}/\1/p')
+
+  # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días). Que retome donde
+  # quedó en vez de arrancar de cero. `resume` es null (→ vacío) si no hay ninguno reciente.
+  RESUME=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume" \
+    | sed -n 's/.*"resume":"\(.*\)"}/\1/p')
 
   # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario
   # conecta (sin marker greeted) pedimos /api/hello y lo inyectamos. El marker apaga
@@ -53,6 +58,7 @@ feat_on() {
 }
 feat_on team-digest || BRIEF=""
 feat_on daily-synthesis || SYN=""
+feat_on session-resume || RESUME=""
 
 # Aviso de reuniones sin sincronizar (feature 'reuniones', máx 1×/día). No llama a API/MCP:
 # solo invita a activar la skill. Idempotente por día vía marker en el pending-dir.
@@ -80,20 +86,16 @@ for f in "$PDIR"/pending-*; do
   break
 done
 
+# Ensamblado. El RESUME (retomá donde quedaste) va PRIMERO: es lo más accionable al
+# abrir. Luego bienvenida first-run, contexto del equipo, síntesis y avisos.
 CONTEXT=""
-[ -n "$HELLO" ] && CONTEXT="$HELLO"
-if [ -n "$BRIEF" ]; then
-  if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n# One Brain — contexto del equipo\\n$BRIEF"; else CONTEXT="# One Brain — contexto del equipo\\n$BRIEF"; fi
-fi
-if [ -n "$SYN" ]; then
-  if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$SYN"; else CONTEXT="$SYN"; fi
-fi
-if [ -n "$PENDMSG" ]; then
-  if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$PENDMSG"; else CONTEXT="$PENDMSG"; fi
-fi
-if [ -n "$REUNMSG" ]; then
-  if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$REUNMSG"; else CONTEXT="$REUNMSG"; fi
-fi
+ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$1"; else CONTEXT="$1"; fi; }
+ob_append "$RESUME"
+ob_append "$HELLO"
+[ -n "$BRIEF" ] && ob_append "# One Brain — contexto del equipo\\n$BRIEF"
+ob_append "$SYN"
+ob_append "$PENDMSG"
+ob_append "$REUNMSG"
 [ -n "$CONTEXT" ] || exit 0
 
 printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$CONTEXT"
