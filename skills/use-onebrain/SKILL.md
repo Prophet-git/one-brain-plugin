@@ -1,5 +1,5 @@
 ---
-description: Usá One Brain (la memoria colectiva de la empresa) durante todo el trabajo. Consultá antes de arrancar una tarea y guardá al cerrar un avance, decisión o aprendizaje. Aplicá cuando trabajes sobre cualquier cliente, proyecto, persona o tema de la empresa.
+description: Usá One Brain (la memoria colectiva de la empresa) durante todo el trabajo. Consultá antes de arrancar una tarea; guardá apenas se cierra una decisión o un hito importante (no solo al final) y SÍ O SÍ al terminar la sesión. Aplicá cuando trabajes sobre cualquier cliente, proyecto, persona o tema de la empresa.
 ---
 
 # Usar One Brain
@@ -35,11 +35,15 @@ La búsqueda encuentra lo que existe con esas palabras. NO sirve, por sí sola, 
 ## Regla proactiva (importante)
 Cuando en la conversación aparezca una entidad conocida (un cliente, proyecto, persona o tema de la empresa), traé y **citá** lo que el equipo ya sabe de ella —con procedencia: quién lo cargó y cuándo— **sin que te lo pidan**. La gente no siempre sabe qué preguntar.
 
-## Guardar (al cerrar)
-Llamá `brain_save` al terminar algo con señal: un avance concreto, una decisión, un dato importante que aprendiste, un evento relevante (reunión, llamada, problema). Guardá un resumen autocontenido (2-10 líneas) y las entidades tocadas. **NO** guardes trivialidades ni datos personales sensibles. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
+## Guardar (durante la sesión Y al cerrar)
+Guardá con `brain_save` **apenas se cierra algo con señal — no solo al final de la sesión**: cada vez que se toma una **decisión importante**, se completa un **hito o avance concreto** (un deploy, un fix, un entregable, una definición), o aprendés un **dato relevante** (reunión, llamada, problema). No lo dejes para el cierre: volcalo en el momento.
+
+- **Propone-y-confirma**: antes de escribir, mostrá el resumen y pedí OK — "voy a guardar esto: […] · ¿ok / editás / descartás?". Con el OK, llamá `brain_save`.
+- Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
+- **NO** guardes trivialidades, pasos intermedios ni datos personales sensibles.
 
 ## Niveles y confidencialidad
 Las entradas tienen nivel (1 dirección / 2 gerencia / 3 general). El server solo te devuelve lo que el nivel del usuario permite y lo hace cumplir — no intentes rodearlo. Si un dato no aparece porque es de nivel superior, tratalo como **inexistente**: respondé "no tengo registro de eso", NO "no te lo puedo decir" (que confirmaría que existe).
 
-## Cierre de sesión
-Antes de terminar una sesión con trabajo real, asegurate de haber guardado el avance con `brain_save`. Si no lo hiciste y hubo cambios, un recordatorio te lo va a avisar: no lo ignores.
+## Cierre de sesión (SÍ O SÍ)
+Al terminar una sesión con trabajo real, **siempre** revisá que cada avance y decisión con señal haya quedado guardado —aunque ya hayas ido guardando durante la sesión—. Es el piso mínimo, no el único momento. Si algo quedó sin guardar, un recordatorio te lo va a avisar: no lo ignores.
