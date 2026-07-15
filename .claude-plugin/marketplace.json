@@ -1,0 +1,8 @@
+{
+  "name": "prophet",
+  "owner": { "name": "Prophet", "email": "team@prophet.lat" },
+  "description": "Plugins internos de Prophet",
+  "plugins": [
+    { "name": "one-brain", "source": ".", "description": "Memoria colectiva de la empresa: MCP + contexto de equipo al arrancar" }
+  ]
+}

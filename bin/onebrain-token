@@ -1,0 +1,24 @@
+#!/bin/sh
+# Manejo del token local de One Brain.
+DIR="$HOME/.config/one-brain"
+FILE="$DIR/token"
+URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+case "$1" in
+  set)
+    [ -n "$2" ] || { echo "uso: onebrain-token set <token>" >&2; exit 1; }
+    mkdir -p "$DIR"; printf '%s' "$2" > "$FILE"; chmod 600 "$FILE"
+    echo "one-brain: token guardado en $FILE" ;;
+  get)
+    [ -r "$FILE" ] && cat "$FILE" || { echo "sin token" >&2; exit 1; } ;;
+  verify)
+    [ -r "$FILE" ] || { echo "sin token" >&2; exit 1; }
+    TOKEN=$(tr -d ' \t\r\n' < "$FILE")
+    CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "content-type: application/json" \
+      -H "accept: application/json, text/event-stream" \
+      -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+      "$URL/api/mcp")
+    [ "$CODE" = "200" ] && echo "one-brain: conexión OK" || { echo "one-brain: falló ($CODE)" >&2; exit 1; } ;;
+  *) echo "uso: onebrain-token set|get|verify" >&2; exit 1 ;;
+esac

@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"mcp__one-brain__brain_save","input":{}}]}}

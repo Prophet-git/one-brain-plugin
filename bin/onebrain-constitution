@@ -1,0 +1,28 @@
+#!/bin/sh
+# Persiste la constitución del equipo en One Brain (requiere ser admin del tenant).
+# Uso: onebrain-constitution set <archivo.md>
+DIR="$HOME/.config/one-brain"
+FILE="$DIR/token"
+URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+case "$1" in
+  set)
+    [ -n "$2" ] || { echo "uso: onebrain-constitution set <archivo.md>" >&2; exit 1; }
+    [ -r "$2" ] || { echo "one-brain: no puedo leer '$2'" >&2; exit 1; }
+    [ -r "$FILE" ] || { echo "sin token. Corré /one-brain:connect <token>." >&2; exit 1; }
+    command -v jq >/dev/null 2>&1 || { echo "one-brain: falta 'jq' (instalá con: brew install jq)." >&2; exit 1; }
+    TOKEN=$(tr -d ' \t\r\n' < "$FILE")
+    # JSON armado con jq para escapar el markdown de forma segura (comillas, saltos).
+    BODY=$(jq -Rs '{content_md: .}' < "$2")
+    CODE=$(printf '%s' "$BODY" | curl -s -o /dev/null -w "%{http_code}" -X PUT \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "content-type: application/json" \
+      --data-binary @- \
+      "$URL/api/constitution")
+    case "$CODE" in
+      200) echo "one-brain: constitución guardada." ;;
+      403) echo "one-brain: sólo un admin (dirección) puede editar la constitución." >&2; exit 1 ;;
+      401) echo "one-brain: token inválido o revocado; reconectá con /one-brain:connect." >&2; exit 1 ;;
+      *)   echo "one-brain: falló al guardar ($CODE)." >&2; exit 1 ;;
+    esac ;;
+  *) echo "uso: onebrain-constitution set <archivo.md>" >&2; exit 1 ;;
+esac

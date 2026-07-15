@@ -1,0 +1,7 @@
+{
+  "name": "one-brain",
+  "description": "Memoria colectiva de la empresa. Guardá y consultá contexto del equipo desde tu Claude Code; el contexto del equipo se inyecta solo al arrancar la sesión.",
+  "author": { "name": "Prophet" },
+  "homepage": "https://github.com/Prophet-git/one-brain",
+  "repository": "https://github.com/Prophet-git/one-brain"
+}

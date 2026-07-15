@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"content":[{"type":"text","text":"hola"}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{}}]}}
