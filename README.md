@@ -8,15 +8,40 @@ Code arranca cada sesión sabiendo en qué está el equipo.
 - `jq` instalado (`brew install jq` en Mac). Se usa para guardar la constitución.
 - Tu **token** de acceso (te lo pasa quien te dio de alta; empieza con `ob_`).
 
-## Instalación (una vez)
+## Armá tu espacio (una vez)
 
-Pegá esto en Claude Code, en orden:
+Pegá esto en tu terminal (en **Windows**, en **Git Bash**), con el nombre de tu empresa:
+
+    curl -fsSL https://one-brain-kappa.vercel.app/setup.sh | bash -s -- "Tu Empresa"
+
+Te crea la carpeta `Documents/one-brain` ya configurada (con las reglas para que el cerebro se
+llene solo) + un acceso directo **"One Brain"** en el escritorio. Desde ahí vas a abrir Claude
+Code siempre en el lugar correcto.
+
+## Instalar el plugin (una vez)
+
+Abrí Claude Code (doble clic en "One Brain") y pegá esto, en orden. **Los reinicios NO son
+opcionales**: si conectás el token sin reiniciar antes, la skill `connect` todavía no está
+cargada y da "unknown skill".
+
+1. Agregá el marketplace e instalá el plugin:
 
     /plugin marketplace add Prophet-git/one-brain-plugin
     /plugin install one-brain@prophet
+
+2. **Cerrá Claude Code y volvé a abrirlo** (así se cargan las skills del plugin). Verificá
+   que al tipear `/one-brain:` te autocompleta los comandos.
+
+3. Conectá tu token:
+
     /one-brain:connect <tu-token>
 
-Después **reiniciá la sesión** (o corré `/reload-plugins`) para que se active el conector.
+4. **Cerrá Claude Code y volvé a abrirlo otra vez** (así el conector toma tu token).
+
+5. Confirmá con `/one-brain:status` que quedó conectado.
+
+> En Windows: cerrar y reabrir la ventana es más confiable que `/reload-plugins`. El plugin
+> necesita un entorno POSIX (WSL o Git Bash) y `jq` instalado — ver "¿Algo no anda?".
 
 ## Primer arranque
 
