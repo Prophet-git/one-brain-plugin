@@ -11,7 +11,7 @@ SESSION=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p')
 
 TOKEN_FILE="$HOME/.config/one-brain/token"
 URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
-BRIEF=""; SYN=""; HELLO=""; RESUME=""
+BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""
 if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
   BRIEF=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/context" \
@@ -23,6 +23,11 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   # quedó en vez de arrancar de cero. `resume` es null (→ vacío) si no hay ninguno reciente.
   RESUME=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume" \
     | sed -n 's/.*"resume":"\(.*\)"}/\1/p')
+
+  # Menciones pendientes que te dejó un compañero. El endpoint devuelve un string ya
+  # formateado y accionable (o "" si no hay). Solo terminal (el hook no corre en Desktop).
+  MENTIONS=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions" \
+    | sed -n 's/.*"mentions":"\(.*\)"}/\1/p')
 
   # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario
   # conecta (sin marker greeted) pedimos /api/hello y lo inyectamos. El marker apaga
@@ -59,6 +64,7 @@ feat_on() {
 feat_on team-digest || BRIEF=""
 feat_on daily-synthesis || SYN=""
 feat_on session-resume || RESUME=""
+feat_on menciones || MENTIONS=""
 
 # Aviso de reuniones sin sincronizar (feature 'reuniones', máx 1×/día). No llama a API/MCP:
 # solo invita a activar la skill. Idempotente por día vía marker en el pending-dir.
@@ -91,6 +97,7 @@ done
 CONTEXT=""
 ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$1"; else CONTEXT="$1"; fi; }
 ob_append "$RESUME"
+ob_append "$MENTIONS"
 ob_append "$HELLO"
 [ -n "$BRIEF" ] && ob_append "# One Brain — contexto del equipo\\n$BRIEF"
 ob_append "$SYN"
