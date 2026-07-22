@@ -4,7 +4,7 @@ description: Usá One Brain (la memoria colectiva de la empresa) durante todo el
 
 # Usar One Brain
 
-One Brain es la memoria colectiva de la empresa, accesible por las tools MCP `brain_context`, `brain_search`, `brain_entity`, `brain_entities`, `brain_save`. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
+One Brain es la memoria colectiva de la empresa, accesible por las tools MCP `brain_context`, `brain_search`, `brain_entity`, `brain_entities`, `brain_save`, `brain_mention`. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
 
 ## Cómo resolver cada tipo de pregunta (ruteo)
 
@@ -25,6 +25,7 @@ Antes de contestar, identificá qué tipo de pregunta es y usá el plan correspo
 | "¿cuántos…?", "listá todos…", un total | traé con `brain_search`/`brain_entity` y **contá vos sobre lo que trajiste**, aclarando que es sobre lo cargado |
 | "¿qué falta / qué NO pasó?" | respondé solo si tenés el universo completo cargado; si no, decilo |
 | pregunta de varios saltos | descomponé en sub-preguntas y encadená varias llamadas |
+| **"mencioná a X", "avisale a X", "pedile a X que…", "notificá a X", "que lo vea X"** | **`brain_mention`** (`to`: nombre/email, `body`: qué tiene que ver/hacer, `entry_id`: la nota si acabás de guardarla) → le deja un PENDIENTE que le llega en su panel y su terminal |
 
 ### Fechas relativas
 Cuando pregunten con referencias relativas ("esta semana", "el mes pasado", "últimos 30 días", "este año"), convertí vos la referencia a fechas concretas `YYYY-MM-DD` y pasalas como `since`/`until`. Si la empresa define un año comercial propio (una temporada/campaña que no coincide con el calendario), usá ESE rango cuando lo mencionen.
@@ -41,6 +42,11 @@ Guardá con `brain_save` **apenas se cierra algo con señal — no solo al final
 - **Propone-y-confirma**: antes de escribir, mostrá el resumen y pedí OK — "voy a guardar esto: […] · ¿ok / editás / descartás?". Con el OK, llamá `brain_save`.
 - Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
 - **NO** guardes trivialidades, pasos intermedios ni datos personales sensibles.
+
+## Mencionar a un compañero (notificar) — NO es lo mismo que linkear
+Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_mention` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.
+
+⚠️ Poner a la persona en el campo `entities` de `brain_save` la conecta al grafo pero **NO la notifica** — no cumple el pedido. Si el usuario pide "guardá esto Y avisale a Fran", son DOS acciones: `brain_save` (la nota) + `brain_mention` (el aviso, con el `entry_id` que devolvió el save). No las confundas ni omitas la mención.
 
 ## Continuidad de sesión (OBLIGATORIO — esto nos distingue)
 One Brain te da continuidad entre sesiones. No la desperdicies —la mayoría de la gente arranca cada sesión de cero y llena el contexto al pedo; nosotros no:
