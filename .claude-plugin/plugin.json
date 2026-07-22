@@ -1,6 +1,6 @@
 {
   "name": "one-brain",
-  "version": "0.1.231",
+  "version": "0.1.232",
   "description": "Memoria colectiva de la empresa. Guardá y consultá contexto del equipo desde tu Claude Code; el contexto del equipo se inyecta solo al arrancar la sesión.",
   "author": {
     "name": "Prophet"

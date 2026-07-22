@@ -14,7 +14,10 @@ URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
 BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""
 if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
-  BRIEF=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/context" \
+  # Versión instalada del plugin (del manifest). Se reporta piggyback en la llamada de contexto
+  # (x-plugin-version) para que el panel avise SOLO si estás atrasado — Fase 2 del aviso de update.
+  PLUGIN_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DIR/../.claude-plugin/plugin.json" 2>/dev/null | head -n1)
+  BRIEF=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" "$URL/api/context" \
     | sed -n 's/.*"brief":"\(.*\)"}/\1/p')
   SYN=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" \
     | sed -n 's/.*"prompt":"\(.*\)"}/\1/p')
