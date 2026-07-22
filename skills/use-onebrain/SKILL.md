@@ -1,4 +1,5 @@
 ---
+name: use-onebrain
 description: Usá One Brain (la memoria colectiva de la empresa) durante todo el trabajo. Consultá antes de arrancar una tarea; guardá apenas se cierra una decisión o un hito importante (no solo al final) y SÍ O SÍ al terminar la sesión. Aplicá cuando trabajes sobre cualquier cliente, proyecto, persona o tema de la empresa.
 ---
 

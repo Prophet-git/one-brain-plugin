@@ -1,4 +1,5 @@
 ---
+name: reuniones
 description: Traer las reuniones nuevas de Granola al cerebro (One Brain) y ofrecer destilar sus decisiones/avances. Se activa cuando un aviso de SessionStart dice que hay reuniones sin sincronizar, o cuando el usuario lo pide ("sincronizá mis reuniones", "meté las calls al cerebro", "traé las reuniones de Granola").
 ---
 

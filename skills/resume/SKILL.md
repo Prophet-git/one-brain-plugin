@@ -1,4 +1,5 @@
 ---
+name: resume
 description: Retomar trabajo desde el último handoff guardado en One Brain. Se activa cuando el usuario quiere ponerse al día o continuar algo ("retomemos X", "ponete al día con X", "dónde quedamos", "sigamos con X", "en qué estábamos con X").
 ---
 

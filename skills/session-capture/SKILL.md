@@ -1,4 +1,5 @@
 ---
+name: session-capture
 description: Destilar el avance de la sesión y guardarlo en One Brain al cerrar. Se activa cuando el usuario señala que la sesión termina (dice "listo", "gracias", "terminamos", "eso es todo", se despide) o pide guardar el avance ("guardá esto", "metelo al cerebro"). También cuando un aviso de sesión anterior pide revisar trabajo sin guardar.
 ---
 

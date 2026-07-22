@@ -17,37 +17,43 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   # Versión instalada del plugin (del manifest). Se reporta piggyback en la llamada de contexto
   # (x-plugin-version) para que el panel avise SOLO si estás atrasado — Fase 2 del aviso de update.
   PLUGIN_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$DIR/../.claude-plugin/plugin.json" 2>/dev/null | head -n1)
-  BRIEF=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" "$URL/api/context" \
-    | sed -n 's/.*"brief":"\(.*\)"}/\1/p')
-  SYN=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" \
-    | sed -n 's/.*"prompt":"\(.*\)"}/\1/p')
-
-  # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días). Que retome donde
-  # quedó en vez de arrancar de cero. `resume` es null (→ vacío) si no hay ninguno reciente.
-  RESUME=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume" \
-    | sed -n 's/.*"resume":"\(.*\)"}/\1/p')
-
-  # Menciones pendientes que te dejó un compañero. El endpoint devuelve un string ya
-  # formateado y accionable (o "" si no hay). Solo terminal (el hook no corre en Desktop).
-  MENTIONS=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions" \
-    | sed -n 's/.*"mentions":"\(.*\)"}/\1/p')
-
-  # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario
-  # conecta (sin marker greeted) pedimos /api/hello y lo inyectamos. El marker apaga
-  # esto para siempre después de la 1ra corrida, exista o no la respuesta (silencioso
-  # ante fallo, igual que el resto del hook).
   GREETED_MARKER="$HOME/.config/one-brain/greeted"
-  if [ ! -e "$GREETED_MARKER" ]; then
-    HELLO=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/hello" \
-      | sed -n 's/.*"hello":"\(.*\)"}/\1/p')
+  DO_HELLO=0; [ ! -e "$GREETED_MARKER" ] && DO_HELLO=1
+
+  # Las 5-6 llamadas de arranque son INDEPENDIENTES entre sí → se disparan en PARALELO (curl en
+  # background a archivos temporales) y se espera a todas juntas con `wait`. Antes eran secuenciales
+  # (hasta 6×8s de espera acumulada en el peor caso); ahora el arranque tarda lo que la MÁS lenta
+  # (~8s tope), no la suma. Silencioso ante fallo, igual que antes.
+  OB_TMP=$(mktemp -d 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/ob-start-$$")
+  mkdir -p "$OB_TMP" 2>/dev/null
+
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" "$URL/api/context"   > "$OB_TMP/context"   2>/dev/null &
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" > "$OB_TMP/synthesis" 2>/dev/null &
+  # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días), para retomar donde quedó.
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume"    > "$OB_TMP/resume"    2>/dev/null &
+  # Menciones pendientes que te dejó un compañero (string ya formateado, o "" si no hay).
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
+  # Features del usuario (toggles). Silencioso ante fallo → se conserva el features.json anterior.
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features"  > "$OB_TMP/features"  2>/dev/null &
+  # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario conecta.
+  [ "$DO_HELLO" = 1 ] && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/hello" > "$OB_TMP/hello" 2>/dev/null &
+
+  wait  # esperar a que TODAS las llamadas en background terminen antes de parsear
+
+  BRIEF=$(sed -n 's/.*"brief":"\(.*\)"}/\1/p' "$OB_TMP/context" 2>/dev/null)
+  SYN=$(sed -n 's/.*"prompt":"\(.*\)"}/\1/p' "$OB_TMP/synthesis" 2>/dev/null)
+  RESUME=$(sed -n 's/.*"resume":"\(.*\)"}/\1/p' "$OB_TMP/resume" 2>/dev/null)
+  MENTIONS=$(sed -n 's/.*"mentions":"\(.*\)"}/\1/p' "$OB_TMP/mentions" 2>/dev/null)
+
+  # First-run: parsear el saludo y apagar el marker para siempre (exista o no la respuesta).
+  if [ "$DO_HELLO" = 1 ]; then
+    HELLO=$(sed -n 's/.*"hello":"\(.*\)"}/\1/p' "$OB_TMP/hello" 2>/dev/null)
     mkdir -p "$HOME/.config/one-brain" 2>/dev/null
     printf '' > "$GREETED_MARKER" 2>/dev/null
   fi
 
-  # Features del usuario (toggles). Silencioso ante fallo: si /api/features no
-  # responde (timeout, error, red caída) se conserva el features.json anterior
-  # (o su ausencia = todo ON, ver feat_on).
-  FEATURES=$(curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features")
+  # Cachear features solo si la respuesta trae el objeto (si no responde, se conserva el anterior).
+  FEATURES=$(cat "$OB_TMP/features" 2>/dev/null)
   case "$FEATURES" in
     *'"features"'*)
       mkdir -p "$HOME/.config/one-brain" 2>/dev/null
@@ -55,6 +61,8 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
         | sed -n 's/.*"features":[[:space:]]*\({.*}\)}/\1/p' \
         > "$HOME/.config/one-brain/features.json" ;;
   esac
+
+  rm -rf "$OB_TMP" 2>/dev/null
 fi
 
 # feat_on <slug>: 0 (on) si el feature no está explícitamente en false, o si no
