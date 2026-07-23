@@ -18,9 +18,24 @@ fi
 . "$DIR/capture-lib.sh"
 
 INPUT=$(cat)
-TRANSCRIPT=$(printf '%s' "$INPUT" | sed -n 's/.*"transcript_path":"\([^"]*\)".*/\1/p')
-SESSION=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p')
-CWD=$(printf '%s' "$INPUT" | sed -n 's/.*"cwd":"\([^"]*\)".*/\1/p')
+TRANSCRIPT=$(ob_json_field transcript_path "$INPUT")
+SESSION=$(ob_json_field session_id "$INPUT")
+CWD=$(ob_json_field cwd "$INPUT")
+
+# FAIL-LOUD: si LLEGÓ input pero no pudimos sacar session/transcript, la captura automática
+# está ROTA (cambio de formato de Claude Code, o falta jq/python3/perl en el entorno). NO salir
+# en silencio — así fue como un cambio de formato tumbó la red de seguridad sin que nadie se
+# enterara. Avisamos visible (1×/día para no spamear) para que el usuario/operador lo note.
+if [ -n "$INPUT" ] && { [ -z "$SESSION" ] || [ -z "$TRANSCRIPT" ]; }; then
+  PDIR=$(ob_pending_dir); mkdir -p "$PDIR" 2>/dev/null
+  DAY=$(date +%Y%m%d 2>/dev/null)
+  WARN="$PDIR/degraded-$DAY"
+  if [ -n "$DAY" ] && [ ! -e "$WARN" ]; then
+    printf '' > "$WARN" 2>/dev/null
+    printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"⚠️ One Brain: la captura automática NO está funcionando — no pude leer el input del hook (posible cambio de formato de Claude Code, o falta jq/python3/perl en este entorno). Tus avances NO se están registrando solos. Decíselo al usuario de forma visible AHORA y guardá manualmente con brain_save al cerrar; avisale al operador de One Brain para que lo arregle."}}'
+  fi
+  exit 0
+fi
 [ -r "$TRANSCRIPT" ] || exit 0
 [ -n "$SESSION" ] || exit 0
 

@@ -7,7 +7,11 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/capture-lib.sh"
 
 INPUT=$(cat 2>/dev/null)
-SESSION=$(printf '%s' "$INPUT" | sed -n 's/.*"session_id":"\([^"]*\)".*/\1/p')
+SESSION=$(ob_json_field session_id "$INPUT")
+# Self-test del parser (Capa 3): ¿el hook puede leer el input en ESTE entorno? Se reporta al
+# server (header x-hook-ok) para que el operador lo vea en el panel, y si falla se avisa fuerte
+# en el contexto de arranque. Nunca en silencio.
+HOOK_OK=$(ob_selftest)
 
 TOKEN_FILE="$HOME/.config/one-brain/token"
 URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
@@ -27,7 +31,7 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   OB_TMP=$(mktemp -d 2>/dev/null || printf '%s' "${TMPDIR:-/tmp}/ob-start-$$")
   mkdir -p "$OB_TMP" 2>/dev/null
 
-  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" "$URL/api/context"   > "$OB_TMP/context"   2>/dev/null &
+  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" -H "x-hook-ok: $HOOK_OK" "$URL/api/context"   > "$OB_TMP/context"   2>/dev/null &
   curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" > "$OB_TMP/synthesis" 2>/dev/null &
   # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días), para retomar donde quedó.
   curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume"    > "$OB_TMP/resume"    2>/dev/null &
@@ -103,10 +107,18 @@ for f in "$PDIR"/pending-*; do
   break
 done
 
-# Ensamblado. El RESUME (retomá donde quedaste) va PRIMERO: es lo más accionable al
-# abrir. Luego bienvenida first-run, contexto del equipo, síntesis y avisos.
+# Aviso de captura degradada (Capa 3): si el self-test falló, la captura automática NO va a
+# funcionar en este entorno. Se avisa arriba de todo, es lo más urgente.
+HOOKWARN=""
+if [ "$HOOK_OK" != "1" ]; then
+  HOOKWARN="⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de Claude Code (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario."
+fi
+
+# Ensamblado. El aviso de captura degradada va PRIMERO (si existe); luego RESUME (retomá donde
+# quedaste), bienvenida first-run, contexto del equipo, síntesis y avisos.
 CONTEXT=""
 ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$1"; else CONTEXT="$1"; fi; }
+ob_append "$HOOKWARN"
 ob_append "$RESUME"
 ob_append "$MENTIONS"
 ob_append "$HELLO"
