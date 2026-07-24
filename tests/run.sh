@@ -305,6 +305,59 @@ assert_eq "doctor: carpeta con CLAUDE.md => ok" "ok" \
 # el parser del hook anda en este entorno (misma señal que ob_selftest)
 assert_eq "doctor: parser del hook => ok" "ok" "$(estado "$(ob_doc_parser)")"
 
+# --- doctor: la versión que reporta es la INSTALADA, no la del bin que corrió ---
+# Bug real (24-jul): al actualizar el plugin con Claude Code abierto, la versión vieja queda
+# huérfana pero el PATH de la sesión sigue apuntando a su bin/. El doctor leía el plugin.json de
+# su propio directorio, así que reportaba la vieja: el cliente actualiza, corre el doctor, ve la
+# versión de antes y cree que el update falló. Y encima los binarios nuevos (onebrain-save) no
+# están en el PATH hasta reiniciar. El doctor tiene que decir la verdad y avisar del desfasaje.
+V_HOME=$(mktemp -d)
+mkdir -p "$V_HOME/.claude/plugins" "$V_HOME/vieja/.claude-plugin" "$V_HOME/nueva/.claude-plugin"
+printf '{"name":"one-brain","version":"0.1.271"}' > "$V_HOME/vieja/.claude-plugin/plugin.json"
+printf '{"name":"one-brain","version":"0.1.305"}' > "$V_HOME/nueva/.claude-plugin/plugin.json"
+V_PLUGINS="$V_HOME/.claude/plugins/installed_plugins.json"
+cat > "$V_PLUGINS" <<'JSON'
+{
+  "version": 2,
+  "plugins": {
+    "vercel@claude-plugins-official": [
+      { "scope": "user", "version": "0.43.0" }
+    ],
+    "one-brain@prophet": [
+      {
+        "scope": "user",
+        "installPath": "/Users/x/.claude/plugins/cache/prophet/one-brain/0.1.305",
+        "version": "0.1.305"
+      }
+    ],
+    "telegram@claude-plugins-official": [
+      { "scope": "user", "version": "0.0.6" }
+    ]
+  }
+}
+JSON
+version_de() { # <root del plugin que "corre"> [archivo installed_plugins]
+  env CLAUDE_PLUGINS_FILE="${2-$V_PLUGINS}" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_version "$1"' _ "$1"
+}
+detalle() { printf '%s' "$1" | cut -d'|' -f3; }
+
+assert_eq "doctor: bin viejo en el PATH => aviso" "aviso" "$(estado "$(version_de "$V_HOME/vieja")")"
+printf '%s' "$(detalle "$(version_de "$V_HOME/vieja")")" | grep -q '0\.1\.305'
+assert_eq "doctor: el aviso nombra la versión INSTALADA" 0 "$?"
+printf '%s' "$(detalle "$(version_de "$V_HOME/vieja")")" | grep -qi 'reinici'
+assert_eq "doctor: el aviso dice cómo destrabarlo (reiniciar)" 0 "$?"
+
+assert_eq "doctor: instalada == la que corre => ok" "ok" "$(estado "$(version_de "$V_HOME/nueva")")"
+printf '%s' "$(detalle "$(version_de "$V_HOME/nueva")")" | grep -q '0\.1\.305'
+assert_eq "doctor: en ok reporta la versión" 0 "$?"
+
+# sin registro de Claude Code (otro instalador, o el archivo no está): no inventa nada, cae a la
+# versión del directorio que corre — el comportamiento de antes, que sigue siendo el correcto acá.
+assert_eq "doctor: sin installed_plugins.json => ok con la del directorio" "ok" \
+  "$(estado "$(version_de "$V_HOME/vieja" "$V_HOME/no-existe.json")")"
+printf '%s' "$(detalle "$(version_de "$V_HOME/vieja" "$V_HOME/no-existe.json")")" | grep -q '0\.1\.271'
+assert_eq "doctor: sin registro reporta la del directorio" 0 "$?"
+
 # el ejecutable existe y nunca imprime el token en claro
 DOC="$ROOT/bin/onebrain-doctor"
 [ -x "$DOC" ]; assert_eq "onebrain-doctor existe y es ejecutable" 0 "$?"

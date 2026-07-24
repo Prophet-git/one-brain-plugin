@@ -20,9 +20,10 @@ ROOT=$(CDPATH= cd -- "$DIR/.." && pwd)
 SALIDA=$(ob_doc_todos)
 printf '%s\n' "$SALIDA"
 
-# Versión instalada, como dato al pie (no es un chequeo: el panel ya avisa si estás atrasado).
-VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" 2>/dev/null | head -n1)
-[ -n "$VER" ] && printf 'version|ok|plugin %s\n' "$VER"
+# Versión, como dato al pie (el panel ya avisa si estás atrasado). Se compara contra lo que
+# Claude Code tiene instalado: si nos ejecutaron desde el bin de una versión vieja que quedó en
+# el PATH, avisamos en vez de mentir. Ojo: "$ROOT" es de dónde salió ESTE proceso, no la verdad.
+ob_doc_version "$ROOT"
 
 printf '%s' "$SALIDA" | grep -q '|falla|' && exit 1
 exit 0

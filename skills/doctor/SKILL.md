@@ -19,7 +19,7 @@ Diagnosticás la instalación de esta máquina y devolvés un veredicto claro co
    - **hooks** — si `disableAllHooks` está apagando todos los hooks del sistema.
    - **carpeta** — si existe la carpeta de trabajo con su `CLAUDE.md`.
    - **conexion** — si el cerebro responde con este token.
-   - **version** — qué versión del plugin está instalada.
+   - **version** — qué versión está corriendo, comparada con la que Claude Code tiene instalada. Si actualizó el plugin sin reiniciar, la sesión sigue usando la vieja y da `aviso`.
 
 ## Cómo lo reportás
 
@@ -34,6 +34,7 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 | `carpeta` | Correr el instalador de la carpeta de trabajo, o abrir Claude Code desde la carpeta donde tenga su `CLAUDE.md` |
 | `conexion` 401/403 | El token no vale más: pedir uno nuevo y volver a conectar |
 | `conexion` sin respuesta | Probar la red/VPN y reintentar; si sigue, avisarle al operador |
+| `version` en `aviso` | Reiniciar Claude Code. Actualizó el plugin con la sesión abierta: quedó corriendo la versión vieja y los comandos nuevos no están disponibles. No hace falta volver a instalar nada |
 
 Si todo dio `ok`, decilo derecho y agregá que si igual no ve nada guardado, reinicie la sesión para que el conector tome el token.
 
@@ -41,5 +42,5 @@ Si todo dio `ok`, decilo derecho y agregá que si igual no ve nada guardado, rei
 
 - **Nunca imprimas el token** ni lo repitas, aunque aparezca en pantalla.
 - No inventes chequeos que el comando no hizo: reportás lo que devolvió, nada más.
-- Un `aviso` no es una falla: mencionalo al final, sin alarma.
+- Un `aviso` no es una falla: mencionalo al final, sin alarma. La excepción es `version`, que sí pide una acción concreta (reiniciar) — ese decilo aunque el resto esté en verde.
 - Hablá en criollo, sin jerga: quien corre esto suele no ser técnico.

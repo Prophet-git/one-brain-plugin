@@ -90,6 +90,47 @@ ob_doc_conexion() {
   esac
 }
 
+# ¿La versión que está corriendo es la instalada? Cuando el plugin se actualiza con Claude Code
+# abierto, la versión vieja queda huérfana pero el PATH de la sesión sigue apuntando a su bin/.
+# Mirando el plugin.json del directorio propio, el doctor reporta la vieja: el usuario actualiza,
+# corre el doctor, ve la de antes y cree que el update falló. Y no es solo cosmético — los
+# binarios nuevos tampoco están en ese PATH. La verdad la tiene el registro de Claude Code.
+ob_doc_plugins_file() {
+  printf '%s' "${CLAUDE_PLUGINS_FILE:-$HOME/.claude/plugins/installed_plugins.json}"
+}
+
+# Versión declarada por el plugin.json de un directorio dado.
+ob_doc_version_dir() {
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+    "$1/.claude-plugin/plugin.json" 2>/dev/null | head -n1
+}
+
+# Versión que Claude Code tiene registrada como instalada. Vacío si no hay registro (otro
+# instalador, o el archivo todavía no existe): en ese caso no inventamos nada.
+ob_doc_version_instalada() {
+  ob_pf=$(ob_doc_plugins_file)
+  [ -r "$ob_pf" ] || return 0
+  # Un campo por registro (RS=","), y recién después del bloque de one-brain: el JSON trae un
+  # "version" propio arriba de todo y uno por cada plugin instalado.
+  awk 'BEGIN{RS=","}
+       /"one-brain@prophet"/ {f=1}
+       f && /"version"[[:space:]]*:[[:space:]]*"/ {
+         sub(/.*"version"[[:space:]]*:[[:space:]]*"/,""); sub(/".*/,""); print; exit }' \
+    "$ob_pf" 2>/dev/null
+}
+
+ob_doc_version() { # <root del plugin que se está ejecutando>
+  ob_corre=$(ob_doc_version_dir "$1")
+  ob_inst=$(ob_doc_version_instalada)
+  if [ -n "$ob_inst" ] && [ -n "$ob_corre" ] && [ "$ob_inst" != "$ob_corre" ]; then
+    printf 'version|aviso|tenés instalada la %s pero esta sesión está corriendo la %s: reiniciá Claude Code para que tome la nueva\n' \
+      "$ob_inst" "$ob_corre"
+    return
+  fi
+  [ -n "$ob_corre" ] || ob_corre="$ob_inst"
+  [ -n "$ob_corre" ] && printf 'version|ok|plugin %s\n' "$ob_corre"
+}
+
 # Corre todos los chequeos, en orden de "qué mirar primero".
 ob_doc_todos() {
   ob_doc_token
