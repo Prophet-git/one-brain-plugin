@@ -23,8 +23,18 @@ Cerrás el loop de memoria: convertís el trabajo de la sesión en entries de On
    - `level`: por defecto tu nivel; ofrecé cambiarlo si es sensible
    - `supersedes`: si reemplaza una decisión anterior, su id
 3. **Proponé** el/los resúmenes al usuario ANTES de escribir: "voy a guardar esto: […] · ¿ok / editás / descartás?".
-4. Con el OK → llamá `brain_save` una vez por entry. Reportá el/los `entry_id`.
+4. Con el OK → guardá cada entry corriendo en Bash el comando **`onebrain-save`** (canal Bash,
+   funciona aunque la tool MCP esté deferred/no cargada todavía en la sesión):
+   `onebrain-save --type <type> --title "<title>" --content "<content_md>" --entities "a,b"`
+   - Si imprime un `entry_id` → guardó OK. Reportalo.
+   - Si NO imprime id (el server estaba caído o sin red) → quedó **encolado** para reintento en
+     el próximo arranque. Avisá al usuario que quedó pendiente, no perdido — no es una falla que
+     tengas que resolver vos ahora.
+   - Si necesitás `level` o `supersedes` no-default, `onebrain-save` no los expone: usá la tool
+     MCP `brain_save` en su lugar si está cargada en la sesión (mismo lugar de guardado, ambas
+     sirven — la MCP cuando está disponible, `onebrain-save` siempre).
 5. Si el usuario descarta, no guardes. Si hubo varios frentes, varios entries. Si no hubo nada guardable, decilo y no inventes.
+6. **Si estabas actuando sobre un rescate** (el aviso de `SessionStart` que menciona un transcript de una sesión anterior sin guardar): el aviso solo trae la RUTA del transcript, no el session-id explícito — sacalo del nombre de archivo del transcript SIN la extensión `.jsonl` (ej: si la ruta es `.../abc-123-def.jsonl`, el session-id es `abc-123-def`). Una vez que el guardado quedó CONFIRMADO (entry_id devuelto), corré en Bash `onebrain-resolve-pending <session-id>` para borrar esa marca — recién ahí para de insistir en cada arranque. Si el guardado FALLÓ o quedó encolado, **NO** la borres: tiene que seguir avisando hasta que se guarde de verdad.
 
 ## Reglas
 - Nunca guardes datos personales sensibles ni secrets.

@@ -43,18 +43,32 @@ PDIR=$(ob_pending_dir)
 PEND="$PDIR/pending-$SESSION"
 UNSAVED=$(ob_has_unsaved_work "$TRANSCRIPT")
 
+CNT_FILE="$PDIR/unsaved-count-$SESSION"
 mkdir -p "$PDIR" 2>/dev/null
 if [ "$UNSAVED" = "1" ]; then
   # marker con lo que el fallback necesita para destilar la sesión anterior
   { printf 'transcript=%s\n' "$TRANSCRIPT"; printf 'cwd=%s\n' "$CWD"; } > "$PEND"
 else
-  rm -f "$PEND" 2>/dev/null
+  # se guardó (o no hay trabajo): se reinicia el ciclo de recordatorio para la próxima vez.
+  rm -f "$PEND" "$PDIR/reminded-$SESSION" "$CNT_FILE" 2>/dev/null
   exit 0
 fi
 
-# recordatorio suave, una vez por sesión
+# Recordatorio: la primera vez por sesión (marker reminded-), y de ahí en más REINSISTE cada 5
+# turnos con trabajo sin guardar (ob_should_renag) — un aviso único al arrancar se pierde de
+# vista en sesiones largas y el trabajo queda sin registrar más tiempo del necesario.
 MARK="$PDIR/reminded-$SESSION"
-[ -e "$MARK" ] && exit 0
-printf '' > "$MARK" 2>/dev/null
+CNT=$(cat "$CNT_FILE" 2>/dev/null); [ -n "$CNT" ] || CNT=0
+CNT=$((CNT + 1))
+printf '%s' "$CNT" > "$CNT_FILE" 2>/dev/null
+
+REMIND=0
+if [ ! -e "$MARK" ]; then
+  printf '' > "$MARK" 2>/dev/null
+  REMIND=1
+elif [ "$(ob_should_renag "$CNT")" = "1" ]; then
+  REMIND=1
+fi
+[ "$REMIND" = "1" ] || exit 0
 printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Hay trabajo en esta sesión sin registrar en One Brain. Al cerrar (o si decís algo tipo \\"listo/gracias\\"): (1) guardá los avances/decisiones con la skill session-capture (destilá, proponé, guardá con brain_save); (2) si quedó trabajo a medio hacer, dejá un handoff con la skill handoff para retomarlo en la próxima sesión."}}'
 exit 0

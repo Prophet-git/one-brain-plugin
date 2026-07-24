@@ -1,0 +1,58 @@
+#!/bin/sh
+# onebrain-save: guarda una memoria por el canal Bash (inmune al deferred de la tool MCP).
+# Uso: onebrain-save --type avance --title "T" --content "C" [--entities "a,b"] [--area x]
+# Éxito: imprime el entry_id. Fallo de red/server: encola para reintento (NO se pierde).
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$DIR/../scripts/capture-lib.sh"
+
+TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --type) TYPE=$2; shift 2 ;;
+    --title) TITLE=$2; shift 2 ;;
+    --content) CONTENT=$2; shift 2 ;;
+    --entities) ENTITIES=$2; shift 2 ;;
+    --area) AREA=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+[ -n "$TITLE" ] && [ -n "$CONTENT" ] || { echo "onebrain-save: faltan --title/--content" >&2; exit 2; }
+
+ENT_JSON="[]"
+if [ -n "$ENTITIES" ]; then
+  ENT_JSON=$(printf '%s' "$ENTITIES" | awk -F, '{printf "[";for(i=1;i<=NF;i++){gsub(/"/,"\\\"",$i);printf "%s\"%s\"",(i>1?",":""),$i};printf "]"}')
+fi
+jstr() {
+  if command -v jq >/dev/null 2>&1; then printf '%s' "$1" | jq -Rs .;
+  else printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n",$0}' | sed '$ s/\\n$//')"; fi
+}
+# Si no se pasó --area, OMITIMOS la clave (no mandar "area":"") — en el server, brainSave hace
+# `area: input.area ?? user.area`, y `??` NO cae sobre string vacío. Con "area":"" se pisaba el
+# área heredada del autor por un string vacío en vez de heredar. La skill session-capture llama
+# a este bin SIN --area, así que las memorias auto-capturadas perdían el área del usuario.
+if [ -n "$AREA" ]; then
+  PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s,"area":%s}' \
+    "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON" "$(jstr "$AREA")")
+else
+  PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s}' \
+    "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON")
+fi
+
+TOKEN_FILE="$(ob_config_dir)/token"
+TOKEN=""
+[ -r "$TOKEN_FILE" ] && TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE" 2>/dev/null)
+URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+[ -n "$TOKEN" ] || { echo "onebrain-save: sin token; encolo" >&2; ob_enqueue "$PAYLOAD"; exit 0; }
+
+RESP=$(curl -s --max-time 15 -w '\n%{http_code}' -X POST \
+  -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d "$PAYLOAD" "$URL/api/entry" 2>/dev/null)
+CODE=$(printf '%s' "$RESP" | tail -n1)
+BODY=$(printf '%s' "$RESP" | sed '$d')
+if [ "$CODE" = "200" ]; then
+  printf '%s\n' "$(ob_json_field entry_id "$BODY")"
+else
+  echo "onebrain-save: server respondió $CODE; encolo para reintento" >&2
+  ob_enqueue "$PAYLOAD"
+  exit 0
+fi

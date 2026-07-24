@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"decidamos el approach A"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"ok, propongo X"}]}}
+{"type":"user","message":{"role":"user","content":"sí, y sumale Y"}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"listo, Y sumado"}]}}
+{"type":"user","message":{"role":"user","content":"aprobado, cerralo"}}
