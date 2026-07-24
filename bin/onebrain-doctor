@@ -1,0 +1,28 @@
+#!/bin/sh
+# Diagnóstico completo de One Brain en esta máquina.
+#
+# Para qué: cuando el cerebro "no anda", el usuario no técnico no tiene forma de saber si
+# falta el token, si los hooks están apagados, si no hay red o si le falta el CLAUDE.md. Cada
+# una de esas fallas se ve igual desde afuera (no pasa nada) y termina en un mensaje al
+# operador. Esto las separa y dice el próximo paso.
+#
+# Imprime una línea por chequeo: "<clave>|<estado>|<detalle>". Sale con 1 si algo está en
+# falla, 0 si está todo bien o solo hay avisos. NUNCA imprime el token.
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH= cd -- "$DIR/.." && pwd)
+
+. "$ROOT/scripts/capture-lib.sh" 2>/dev/null
+. "$ROOT/scripts/doctor-lib.sh" 2>/dev/null || {
+  printf 'doctor|falla|no se pudo cargar %s/scripts/doctor-lib.sh\n' "$ROOT"
+  exit 1
+}
+
+SALIDA=$(ob_doc_todos)
+printf '%s\n' "$SALIDA"
+
+# Versión instalada, como dato al pie (no es un chequeo: el panel ya avisa si estás atrasado).
+VER=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$ROOT/.claude-plugin/plugin.json" 2>/dev/null | head -n1)
+[ -n "$VER" ] && printf 'version|ok|plugin %s\n' "$VER"
+
+printf '%s' "$SALIDA" | grep -q '|falla|' && exit 1
+exit 0

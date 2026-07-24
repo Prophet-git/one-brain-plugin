@@ -143,5 +143,84 @@ assert_eq "feature en true => exit 0" 0 "$?"
 env HOME="$HOME_T" "$FEAT" daily-synthesis
 assert_eq "feature ausente del json => exit 0 (default ON)" 0 "$?"
 
+# --- doctor: cada chequeo diagnostica el entorno REAL que se le pasa (HOME aislado) ---
+. "$ROOT/scripts/doctor-lib.sh"
+estado() { printf '%s' "$1" | cut -d'|' -f2; }
+
+DOC_HOME=$(mktemp -d)
+mkdir -p "$DOC_HOME/.config/one-brain"
+
+# sin token
+assert_eq "doctor: sin token => falla" "falla" \
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+
+# token corto (pegado a medias)
+printf 'ob_123' > "$DOC_HOME/.config/one-brain/token"
+assert_eq "doctor: token truncado => falla" "falla" \
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+
+# token válido
+printf 'ob_una_clave_larga_de_verdad_1234567890' > "$DOC_HOME/.config/one-brain/token"
+assert_eq "doctor: token presente => ok" "ok" \
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+
+# hooks apagados a nivel Claude Code
+printf '{"disableAllHooks": true}' > "$DOC_HOME/settings.json"
+assert_eq "doctor: disableAllHooks => falla" "falla" \
+  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
+printf '{"model": "opus"}' > "$DOC_HOME/settings.json"
+assert_eq "doctor: hooks habilitados => ok" "ok" \
+  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
+
+# carpeta de trabajo sin CLAUDE.md
+mkdir -p "$DOC_HOME/one-brain"
+assert_eq "doctor: carpeta sin CLAUDE.md => aviso" "aviso" \
+  "$(estado "$(env ONE_BRAIN_DIR="$DOC_HOME/one-brain" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta')")"
+printf '# reglas' > "$DOC_HOME/one-brain/CLAUDE.md"
+assert_eq "doctor: carpeta con CLAUDE.md => ok" "ok" \
+  "$(estado "$(env ONE_BRAIN_DIR="$DOC_HOME/one-brain" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta')")"
+
+# el parser del hook anda en este entorno (misma señal que ob_selftest)
+assert_eq "doctor: parser del hook => ok" "ok" "$(estado "$(ob_doc_parser)")"
+
+# el ejecutable existe y nunca imprime el token en claro
+DOC="$ROOT/bin/onebrain-doctor"
+[ -x "$DOC" ]; assert_eq "onebrain-doctor existe y es ejecutable" 0 "$?"
+SALIDA=$(env HOME="$DOC_HOME" ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" ONE_BRAIN_URL="http://127.0.0.1:9" "$DOC" 2>&1)
+printf '%s' "$SALIDA" | grep -q 'ob_una_clave_larga'; assert_eq "doctor NUNCA imprime el token" 1 "$?"
+printf '%s' "$SALIDA" | grep -q 'token'; assert_eq "doctor reporta el chequeo de token" 0 "$?"
+
+# --- headers.sh: el helper que le pasa el token al MCP, incluido Windows ---
+HDR="$ROOT/scripts/headers.sh"
+H_HOME=$(mktemp -d)
+mkdir -p "$H_HOME/.config/one-brain"
+printf 'ob_token_normal' > "$H_HOME/.config/one-brain/token"
+assert_eq "headers: token normal" '{"Authorization":"Bearer ob_token_normal"}' \
+  "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
+
+# Windows sin HOME: Git Bash a veces solo expone USERPROFILE y el helper quedaba mudo,
+# el usuario caía al login por email y creía que el token no servía.
+assert_eq "headers: sin HOME usa USERPROFILE" '{"Authorization":"Bearer ob_token_normal"}' \
+  "$(env -u HOME USERPROFILE="$H_HOME" sh "$HDR" 2>/dev/null)"
+
+# Token pegado desde un editor de Windows: CRLF y BOM UTF-8 adelante.
+printf '\357\273\277ob_token_bom\r\n' > "$H_HOME/.config/one-brain/token"
+assert_eq "headers: tolera BOM y CRLF" '{"Authorization":"Bearer ob_token_bom"}' \
+  "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
+
+# Sin archivo pero con la variable de entorno (útil en máquinas donde no se puede escribir
+# en el perfil, y en CI).
+rm -f "$H_HOME/.config/one-brain/token"
+assert_eq "headers: cae a ONE_BRAIN_TOKEN" '{"Authorization":"Bearer ob_desde_env"}' \
+  "$(env HOME="$H_HOME" ONE_BRAIN_TOKEN=ob_desde_env sh "$HDR" 2>/dev/null)"
+
+assert_eq "headers: sin nada => objeto vacío" '{}' "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
+
+# --- skill doctor ---
+DTK="$ROOT/skills/doctor/SKILL.md"
+[ -f "$DTK" ]; assert_eq "skill doctor existe" 0 "$?"
+grep -q '^name:' "$DTK" 2>/dev/null; assert_eq "doctor tiene name" 0 "$?"
+grep -q 'onebrain-doctor' "$DTK" 2>/dev/null; assert_eq "doctor invoca el ejecutable" 0 "$?"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
