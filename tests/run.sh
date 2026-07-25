@@ -539,5 +539,68 @@ assert_eq "inflight reciente NO se toca (sesión probablemente viva)" 0 "$?"
 # restaura la implementación real (no dejar el stub contaminando tests que se agreguen después)
 . "$ROOT/scripts/capture-lib.sh"
 
+# --- bin/onebrain-save: parseo de flags ---
+# Regresión: `shift 2` con un solo argumento restante NO baja $# en POSIX sh, así que el while
+# giraba PARA SIEMPRE. Se dispara cuando el modelo arma el comando y un flag queda sin valor
+# (una comilla que rompe el quoting alcanza) — justo al cerrar la sesión, colgando el Bash de
+# Claude Code hasta su timeout. Por eso estos casos corren con límite: si el bug vuelve, el
+# test devuelve 124 en vez de colgar el runner entero.
+run_limited() { # <segundos> <cmd...> -> imprime el exit code, o 124 si hubo que matarlo
+  _lim=$1; shift
+  "$@" >/dev/null 2>&1 &
+  _pid=$!; _n=0
+  while [ "$_n" -lt "$_lim" ]; do
+    kill -0 "$_pid" 2>/dev/null || break
+    sleep 1; _n=$((_n+1))
+  done
+  if kill -0 "$_pid" 2>/dev/null; then
+    kill -9 "$_pid" 2>/dev/null; wait "$_pid" 2>/dev/null; printf '124'
+  else
+    wait "$_pid"; printf '%s' "$?"
+  fi
+}
+# --- ob_clip: recorte por CARACTERES, no por bytes ---
+# Cortar por bytes parte los acentos al medio y deja mojibake, en un producto que escribe todo
+# en español. "ñandúes" tiene 7 caracteres y 9 bytes: si el recorte fuera por bytes, cortar en
+# 7 devolvería un carácter roto.
+assert_eq "texto corto pasa entero"      "hola" "$(printf 'hola' | ob_clip 100)"
+assert_eq "recorta a N caracteres"       "abcde" "$(printf 'abcdefghij' | ob_clip 5 | head -n1)"
+assert_eq "avisa que recortó"            1 "$(printf 'abcdefghij' | ob_clip 5 | grep -c 'recortado')"
+assert_eq "no parte los acentos"         "ñandúes" "$(printf 'ñandúes migrando' | ob_clip 7 | head -n1)"
+assert_eq "UTF-8 sigue válido tras recortar" 0 "$(printf 'áéíóú ñandúes' | ob_clip 8 | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8"); print(0)' 2>/dev/null || echo 1)"
+
+# --- session-start.sh: salida en TEXTO PLANO y con presupuesto ---
+# El JSON armado a mano quedaba inválido en cuanto el brief traía comillas o saltos de línea
+# reales (que es siempre), y Claude Code lo descartaba o mostraba el andamiaje en pantalla.
+SS_SRC="$ROOT/scripts/session-start.sh"
+grep -q 'hookSpecificOutput' "$SS_SRC"
+assert_eq "el hook NO arma JSON a mano (texto plano)" 1 "$?"
+grep -q 'ob_clip "$OB_MAX_TOTAL"' "$SS_SRC"
+assert_eq "la salida pasa por el techo de presupuesto" 0 "$?"
+# El material de síntesis pesa ~24 KB: pedirlo en cada arranque es lo que hacía que Claude Code
+# truncara TODO el contexto. El hook sólo puede espiar.
+grep -q 'api/synthesis?peek=1' "$SS_SRC"
+assert_eq "la síntesis se consulta con ?peek=1 (no reclama ni trae el material)" 0 "$?"
+
+# --- session-start.sh: los curls CON EFECTO van detrás del gate de features ---
+# /api/synthesis toma el candado atómico del día y /api/mentions marca resoluciones como vistas.
+# Llamarlos y descartar el resultado después (como se hacía) le bloquea el día al equipo entero
+# y come avisos en silencio. El gate tiene que estar en la MISMA línea del curl.
+SS="$ROOT/scripts/session-start.sh"
+grep -q 'feat_on daily-synthesis && curl .*api/synthesis' "$SS"
+assert_eq "el curl a /api/synthesis va detrás de feat_on" 0 "$?"
+grep -q 'feat_on menciones && curl .*api/mentions' "$SS"
+assert_eq "el curl a /api/mentions va detrás de feat_on" 0 "$?"
+
+SAVE_BIN="$ROOT/bin/onebrain-save"
+TMP_HOME=$(mktemp -d)
+assert_eq "--title sin valor => error 2, no cuelga"  2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title)"
+assert_eq "--content sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --type avance --title T --content)"
+assert_eq "--entities sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --entities)"
+# Un flag mal escrito perdía datos en silencio (`*) shift`): la memoria se guardaba igual, sin
+# las entidades o sin el área que el modelo creía haber pasado.
+assert_eq "flag desconocido => error 2 (no se traga el dato)" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --entidades a,b)"
+rm -rf "$TMP_HOME"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

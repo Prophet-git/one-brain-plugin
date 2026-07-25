@@ -20,6 +20,20 @@ SESSION=$(ob_json_field session_id "$INPUT")
 # en el contexto de arranque. Nunca en silencio.
 HOOK_OK=$(ob_selftest)
 
+# feat_on <slug>: 0 (on) si el feature no está explícitamente en false, o si no
+# hay features.json cacheado (default ON). Misma lógica que plugin/bin/onebrain-feature.
+# Se define ACÁ ARRIBA a propósito: dos de las llamadas de abajo tienen EFECTO en el server
+# (/api/synthesis reclama el candado atómico del día, /api/mentions marca resoluciones como
+# vistas). Antes se llamaban siempre y el resultado se descartaba después, así que alguien con
+# la síntesis apagada le bloqueaba el día a todo su equipo por 6 horas en cada arranque, y
+# perdía avisos de menciones en silencio. Lee el cache del arranque anterior, que es
+# exactamente lo que corresponde para decidir si vale la pena llamar.
+feat_on() {
+  FFILE="$HOME/.config/one-brain/features.json"
+  [ -r "$FFILE" ] || return 0
+  ! grep -qE "\"$1\"[[:space:]]*:[[:space:]]*false" "$FFILE" 2>/dev/null
+}
+
 TOKEN_FILE="$HOME/.config/one-brain/token"
 URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
 BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; SAVEBIN=""; TOKENWARN=""; HAS_TOKEN=0
@@ -47,11 +61,15 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   # así detectamos un token vencido/inválido (401/403) sin una llamada extra. Se separan abajo,
   # DESPUÉS del wait — ver Task 8 (fail-loud de token vencido).
   curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-plugin-version: $PLUGIN_VERSION" -H "x-hook-ok: $HOOK_OK" -w '\n%{http_code}' "$URL/api/context"   > "$OB_TMP/context.raw"   2>/dev/null &
-  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis" > "$OB_TMP/synthesis" 2>/dev/null &
+  # ?peek=1: sólo pregunta si hay día sin sintetizar. Sin peek, este GET TOMA el candado del
+  # día y se trae ~24 KB de material — se hacía en cada arranque, casi nunca se usaba, y ese
+  # peso era lo que hacía que Claude Code truncara todo el contexto de arranque.
+  feat_on daily-synthesis && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis?peek=1" > "$OB_TMP/synthesis" 2>/dev/null &
   # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días), para retomar donde quedó.
   curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume"    > "$OB_TMP/resume"    2>/dev/null &
   # Menciones pendientes que te dejó un compañero (string ya formateado, o "" si no hay).
-  curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
+  # También tiene efecto: marca las resoluciones como vistas. Mismo criterio que arriba.
+  feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
   # Features del usuario (toggles). Silencioso ante fallo → se conserva el features.json anterior.
   curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features"  > "$OB_TMP/features"  2>/dev/null &
   # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario conecta.
@@ -69,7 +87,10 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   # pretty-print o comillas escapadas adentro del valor (mismo bug de fondo que ob_json_field
   # ya resuelve para el input del hook). ob_json_field recibe un STRING, no un archivo.
   BRIEF=$(ob_json_field brief "$(cat "$OB_TMP/context" 2>/dev/null)")
-  SYN=$(ob_json_field prompt "$(cat "$OB_TMP/synthesis" 2>/dev/null)")
+  # De la síntesis sólo viene el día pendiente. El material se pide recién cuando la persona
+  # dice que sí — con la orden concreta que va en el aviso de abajo.
+  SYN_DAY=$(ob_json_field period_key "$(cat "$OB_TMP/synthesis" 2>/dev/null)")
+  [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat ~/.config/one-brain/token)\" $URL/api/synthesis"
   RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
   MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
 
@@ -93,13 +114,8 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   rm -rf "$OB_TMP" 2>/dev/null
 fi
 
-# feat_on <slug>: 0 (on) si el feature no está explícitamente en false, o si no
-# hay features.json cacheado (default ON). Misma lógica que plugin/bin/onebrain-feature.
-feat_on() {
-  FFILE="$HOME/.config/one-brain/features.json"
-  [ -r "$FFILE" ] || return 0
-  ! grep -qE "\"$1\"[[:space:]]*:[[:space:]]*false" "$FFILE" 2>/dev/null
-}
+# Segundo gate, ahora sobre el contenido: el de arriba evitó la llamada, éste evita mostrarlo
+# (cubre el caso de que el features.json haya cambiado en esta misma corrida).
 feat_on team-digest || BRIEF=""
 feat_on daily-synthesis || SYN=""
 feat_on session-resume || RESUME=""
@@ -135,21 +151,45 @@ if [ "$HOOK_OK" != "1" ]; then
   HOOKWARN="⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de Claude Code (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario."
 fi
 
-# Ensamblado. El aviso de captura degradada va PRIMERO (si existe); luego RESUME (retomá donde
-# quedaste), bienvenida first-run, contexto del equipo, síntesis y avisos.
+# --- Ensamblado -------------------------------------------------------------------------
+#
+# Dos reglas, las dos aprendidas a los golpes (medido sobre 24 sesiones reales: sólo el 29%
+# recibía el contexto entero):
+#
+# 1) SALIDA EN TEXTO PLANO. Antes esto se emitía como JSON armado con printf, y el brief trae
+#    comillas y saltos de línea REALES (ob_json_field los decodifica): el JSON quedaba
+#    inválido y Claude Code lo descartaba, o peor, mostraba el andamiaje crudo en pantalla.
+#    Para SessionStart, lo que el hook escribe en stdout se agrega al contexto tal cual. Sin
+#    escapado no hay nada que romper.
+#
+# 2) PRESUPUESTO. Si el bloque pasa de ~9 KB, Claude Code lo reemplaza por un preview de 2 KB
+#    y un puntero a un archivo que nadie lee — o sea, el contexto del equipo desaparece sin
+#    que nadie se entere. Cada bloque grande tiene su tope y el total tiene un techo. Los
+#    avisos cortos (token vencido, captura rota, trabajo sin guardar) nunca se recortan:
+#    son justamente los que no pueden perderse.
+OB_MAX_TOTAL=8000
+NL='
+'
 CONTEXT=""
-ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT\\n\\n$1"; else CONTEXT="$1"; fi; }
-ob_append "$TOKENWARN"
-ob_append "$HOOKWARN"
-ob_append "$RESUME"
-ob_append "$MENTIONS"
-ob_append "$HELLO"
-[ -n "$BRIEF" ] && ob_append "# One Brain — contexto del equipo\\n$BRIEF"
-ob_append "$SYN"
-ob_append "$PENDMSG"
+ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT$NL$NL$1"; else CONTEXT="$1"; fi; }
+ob_append_clipped() { # <texto> <max_chars>
+  [ -n "$1" ] || return 0
+  ob_append "$(printf '%s' "$1" | ob_clip "$2")"
+}
+
+ob_append "$TOKENWARN"                 # token vencido: sin esto nada funciona
+ob_append "$HOOKWARN"                  # captura rota en este entorno
+ob_append_clipped "$RESUME" 2500       # dónde quedaste
+ob_append_clipped "$MENTIONS" 800      # lo que te dejó un compañero
+ob_append_clipped "$HELLO" 1200        # bienvenida (sólo la primera vez)
+[ -n "$BRIEF" ] && ob_append_clipped "# One Brain — contexto del equipo$NL$BRIEF" 3500
+ob_append "$SYN"                       # una línea: hay día sin sintetizar
+ob_append "$PENDMSG"                   # quedó trabajo sin guardar
 ob_append "$REUNMSG"
 ob_append "$SAVEBIN"
 [ -n "$CONTEXT" ] || exit 0
 
-printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":"%s"}}' "$CONTEXT"
+# Techo final, por si la suma de los topes se pasa igual (varios bloques grandes a la vez).
+printf '%s\n' "$CONTEXT" | ob_clip "$OB_MAX_TOTAL"
+printf '\n'
 exit 0

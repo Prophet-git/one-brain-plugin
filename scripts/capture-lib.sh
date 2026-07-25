@@ -7,6 +7,28 @@ ob_pending_dir() {
   printf '%s' "$(ob_config_dir)/pending"
 }
 
+# ob_clip <max> — recorta stdin a <max> CARACTERES (no bytes) y avisa que recortó.
+# Por qué caracteres: cortar por bytes parte los acentos al medio y deja mojibake, en un
+# producto que escribe todo en español. Misma cascada que ob_json_field (python3→perl→awk),
+# y como último recurso cut -c, que en la práctica también corta por carácter con locale UTF-8.
+ob_clip() {
+  _obn="$1"
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys
+n = int(sys.argv[1]); s = sys.stdin.read()
+sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado...]")' "$_obn" 2>/dev/null
+    return
+  fi
+  if command -v perl >/dev/null 2>&1; then
+    ONE_BRAIN_CLIP="$_obn" perl -Mutf8 -CSD -0777 -ne '
+      my $n = $ENV{ONE_BRAIN_CLIP};
+      if (length($_) <= $n) { print $_ } else { my $t = substr($_, 0, $n); $t =~ s/\s+$//; print $t, "\n[...recortado...]" }' 2>/dev/null
+    return
+  fi
+  awk -v n="$_obn" '{ buf = buf $0 "\n" }
+    END { if (length(buf) <= n) printf "%s", buf; else printf "%s\n[...recortado...]", substr(buf, 1, n) }' 2>/dev/null
+}
+
 # ob_json_field <campo> <json>
 # Extrae un campo string top-level del JSON que Claude Code pasa al hook. ROBUSTO al
 # formato (compacto O pretty-printed, con o sin espacios tras los ":") y a campos gigantes

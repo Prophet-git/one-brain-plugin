@@ -6,14 +6,22 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/../scripts/capture-lib.sh"
 
 TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""
+# OJO con `shift 2`: en POSIX sh, si queda UN solo argumento, falla y NO baja $# — el while
+# gira para siempre. Pasa cuando el modelo arma el comando y un flag queda sin valor (alcanza
+# una comilla que rompe el quoting), justo al cerrar la sesión. De ahí el guard explícito.
+need_val() { # <flag> <cantidad de args restantes>
+  [ "$2" -ge 2 ] || { echo "onebrain-save: falta el valor de $1" >&2; exit 2; }
+}
 while [ $# -gt 0 ]; do
   case "$1" in
-    --type) TYPE=$2; shift 2 ;;
-    --title) TITLE=$2; shift 2 ;;
-    --content) CONTENT=$2; shift 2 ;;
-    --entities) ENTITIES=$2; shift 2 ;;
-    --area) AREA=$2; shift 2 ;;
-    *) shift ;;
+    --type)     need_val "$1" $#; TYPE=$2; shift 2 ;;
+    --title)    need_val "$1" $#; TITLE=$2; shift 2 ;;
+    --content)  need_val "$1" $#; CONTENT=$2; shift 2 ;;
+    --entities) need_val "$1" $#; ENTITIES=$2; shift 2 ;;
+    --area)     need_val "$1" $#; AREA=$2; shift 2 ;;
+    # Un flag mal escrito se descartaba en silencio y la memoria se guardaba incompleta (sin
+    # entidades, sin área), sin que nadie se enterara. Mejor fallar y que el modelo corrija.
+    *) echo "onebrain-save: opción desconocida: $1" >&2; exit 2 ;;
   esac
 done
 [ -n "$TITLE" ] && [ -n "$CONTENT" ] || { echo "onebrain-save: faltan --title/--content" >&2; exit 2; }
@@ -49,10 +57,29 @@ RESP=$(curl -s --max-time 15 -w '\n%{http_code}' -X POST \
   -d "$PAYLOAD" "$URL/api/entry" 2>/dev/null)
 CODE=$(printf '%s' "$RESP" | tail -n1)
 BODY=$(printf '%s' "$RESP" | sed '$d')
-if [ "$CODE" = "200" ]; then
-  printf '%s\n' "$(ob_json_field entry_id "$BODY")"
-else
-  echo "onebrain-save: server respondió $CODE; encolo para reintento" >&2
-  ob_enqueue "$PAYLOAD"
-  exit 0
-fi
+# Qué se encola y qué no: la cola es para fallas TRANSITORIAS (red caída, server con 5xx,
+# rate limit). Un 4xx es el server diciendo "este payload está mal" — encolarlo lo condena a
+# fallar en cada arranque para siempre, sumando segundos de curl inútil, mientras la skill le
+# informa al usuario que "quedó pendiente, no perdido". Mentira: nunca va a entrar. Mejor
+# devolver el error para que el modelo corrija en el momento (acortar el título, recortar el
+# contenido) y reintente con algo que sí entre.
+case "$CODE" in
+  200)
+    printf '%s\n' "$(ob_json_field entry_id "$BODY")"
+    ;;
+  429|5??|000|"")
+    echo "onebrain-save: server respondió ${CODE:-sin respuesta}; encolo para reintento" >&2
+    ob_enqueue "$PAYLOAD"
+    exit 0
+    ;;
+  4??)
+    echo "onebrain-save: el server rechazó la memoria ($CODE). NO se encoló: corregí y reintentá." >&2
+    [ -n "$BODY" ] && printf '%s\n' "$BODY" >&2
+    exit 1
+    ;;
+  *)
+    echo "onebrain-save: respuesta inesperada ($CODE); encolo para reintento" >&2
+    ob_enqueue "$PAYLOAD"
+    exit 0
+    ;;
+esac
