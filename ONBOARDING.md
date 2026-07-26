@@ -49,7 +49,9 @@ Al reconectar, One Brain te saluda. Si tu cerebro es nuevo, corré:
 
     /one-brain:onboard
 
-y escribimos juntos la constitución de tu empresa (misión, cómo trabajan, reglas).
+y escribimos juntos la constitución de tu empresa (misión, cómo trabajan, reglas). En la
+misma charla, con lo que nos contaste, dejamos cargadas las primeras memorias del equipo:
+así tu primera consulta ya devuelve algo en vez de un cerebro vacío.
 
 ## Uso diario
 - Guardá lo importante: pedile a Claude "guardá esto en One Brain" o usá `brain_save`.

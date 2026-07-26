@@ -144,6 +144,10 @@ fi
 # arranque hasta que eso pase.
 PENDMSG=$(ob_pending_message "$SESSION")
 
+# Memorias que el server RECHAZÓ: salieron del ciclo de reintento (dead-letter) para no
+# reintentarse eternamente, pero el contenido es de alguien y no puede desaparecer callado.
+DEADMSG=$(ob_dead_message)
+
 # Aviso de captura degradada (Capa 3): si el self-test falló, la captura automática NO va a
 # funcionar en este entorno. Se avisa arriba de todo, es lo más urgente.
 HOOKWARN=""
@@ -164,32 +168,99 @@ fi
 #
 # 2) PRESUPUESTO. Si el bloque pasa de ~9 KB, Claude Code lo reemplaza por un preview de 2 KB
 #    y un puntero a un archivo que nadie lee — o sea, el contexto del equipo desaparece sin
-#    que nadie se entere. Cada bloque grande tiene su tope y el total tiene un techo. Los
-#    avisos cortos (token vencido, captura rota, trabajo sin guardar) nunca se recortan:
-#    son justamente los que no pueden perderse.
+#    que nadie se entere. Cada bloque grande tiene su tope y el total tiene un techo.
+#
+# 3) EL ORDEN DECIDE QUIÉN SOBREVIVE. El techo recorta por el FINAL, así que primero van los
+#    avisos operativos y las instrucciones (cortos, y lo que se pierde no se recupera: un
+#    "quedó trabajo sin guardar" que no se emite es trabajo que nadie va a guardar) y al final
+#    el MATERIAL (resume/menciones/brief), que se vuelve a pedir en el próximo arranque.
+#    Antes estaba al revés: con el brief real de prod (5.431 chars) + un resume largo +
+#    menciones, la salida pegaba el techo y se comía el aviso de trabajo sin guardar, el
+#    recordatorio del canal de guardado y media orden de curl de la síntesis. Verificado
+#    ejecutando el hook contra un server con el material real.
 OB_MAX_TOTAL=8000
 NL='
 '
 CONTEXT=""
+OB_CLIPPED=""   # qué bloques hubo que recortar (telemetría de entrega, al final del archivo)
+OB_BLOCK=""     # salida de ob_clip_block: el bloque ya recortado
 ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT$NL$NL$1"; else CONTEXT="$1"; fi; }
-ob_append_clipped() { # <texto> <max_chars>
+# ob_clip_block deja el resultado en $OB_BLOCK en vez de imprimirlo: usado en $(...) el registro
+# del recorte se perdería en el subshell, que es justo el dato que la telemetría necesita.
+ob_clip_block() { # <texto> <max_chars> <nombre-del-bloque>
+  OB_BLOCK=""
   [ -n "$1" ] || return 0
-  ob_append "$(printf '%s' "$1" | ob_clip "$2")"
+  OB_BLOCK=$(printf '%s' "$1" | ob_clip "$2")
+  # ob_clip marca el recorte en el propio texto: usar esa marca (y no una estimación de
+  # tamaño) es medir lo que efectivamente pasó, no lo que suponemos que pasó.
+  case "$OB_BLOCK" in
+    *'[...recortado...]'*) OB_CLIPPED="$OB_CLIPPED${OB_CLIPPED:+,}$3" ;;
+  esac
 }
+ob_append_clipped() { ob_clip_block "$1" "$2" "$3"; ob_append "$OB_BLOCK"; }
 
+# --- Primero lo que no puede perderse: avisos operativos e instrucciones (todos cortos) ---
 ob_append "$TOKENWARN"                 # token vencido: sin esto nada funciona
 ob_append "$HOOKWARN"                  # captura rota en este entorno
-ob_append_clipped "$RESUME" 2500       # dónde quedaste
-ob_append_clipped "$MENTIONS" 800      # lo que te dejó un compañero
-ob_append_clipped "$HELLO" 1200        # bienvenida (sólo la primera vez)
-[ -n "$BRIEF" ] && ob_append_clipped "# One Brain — contexto del equipo$NL$BRIEF" 3500
-ob_append "$SYN"                       # una línea: hay día sin sintetizar
+ob_append "$DEADMSG"                   # memorias que el server rechazó y nadie va a reintentar
 ob_append "$PENDMSG"                   # quedó trabajo sin guardar
+ob_append "$SYN"                       # una línea: hay día sin sintetizar
 ob_append "$REUNMSG"
 ob_append "$SAVEBIN"
-[ -n "$CONTEXT" ] || exit 0
 
+# --- Después el material, que es lo recortable ---
+ob_append_clipped "$RESUME" 2500 resume        # dónde quedaste
+ob_append_clipped "$MENTIONS" 800 menciones    # lo que te dejó un compañero
+ob_append_clipped "$HELLO" 1200 hello          # bienvenida (sólo la primera vez)
+if [ -n "$BRIEF" ]; then
+  # El brief va ÚLTIMO: es el bloque más grande y el único que el techo puede morder sin costo
+  # (se vuelve a pedir en el próximo arranque).
+  ob_clip_block "# One Brain — contexto del equipo$NL$BRIEF" 3500 brief
+  # T1.3 — HACER VISIBLE EL RETORNO.
+  # Todo esto entra como additionalContext de un hook: lo consume el MODELO, y la persona nunca
+  # ve que lo que Claude "ya sabe" lo escribió un compañero. El momento "ajá" del producto es
+  # exactamente ese cruce entre dos personas, y hoy sólo ocurre en la reunión de venta, nunca
+  # adentro del producto. Lo que no se atribuye, no se renueva.
+  #
+  # La instrucción va ANTES del brief a propósito (regla 3): si el techo pega, lo que se corta
+  # es el final del material, no la instrucción que hace que el material se atribuya.
+  #
+  # Y se adapta al material: el brief viene de buildTeamBrief, que formatea cada entrada como
+  # "- **Título** ([[Autor]] · 24/07/2026): ..." — pero el autor sale de users.name, que puede
+  # ser null, y encima el recorte a 3500 puede dejar afuera la parte firmada. Por eso el chequeo
+  # es sobre el texto YA RECORTADO ($OB_BLOCK), no sobre el brief entero: pedirle al modelo que
+  # nombre a una persona que no está en el material es pedirle que la invente, y una atribución
+  # falsa hace más daño que ninguna.
+  #
+  # Se busca la FIRMA COMPLETA "([[Alguien]] · " y no un simple "[[": los cuerpos de las memorias
+  # están llenos de wikilinks (así escribe el equipo), así que detectar por corchetes haría que
+  # en un brief sin autor le pidiéramos atribuir a una nota en vez de a una persona.
+  if printf '%s' "$OB_BLOCK" | grep -q '(\[\[[^]]*\]\] · '; then
+    # El "sin los corchetes" no es cosmético: probado con el brief real, el modelo copiaba la
+    # firma tal cual y le escribía "[[Bauti]]" a la persona. El wikilink es sintaxis interna del
+    # cerebro; lo que la persona tiene que leer es un nombre.
+    ATRIBUCION="Antes de responder lo primero que te pida el usuario, escribí UNA sola línea que empiece con \"One Brain:\" diciendo qué te trajo el cerebro del equipo y quién lo escribió: el nombre de la persona (en el material figura entre corchetes dobles, ej. [[Fran]]; escribilo SIN los corchetes) y la fecha que está al lado. Ejemplo: \"One Brain: traje la decisión de pasar la carga a Postgres, la escribió Fran el 24/07/2026\". Una línea sola, y seguí con lo que te pidieron. No inventes autor ni fecha: si algo no los trae, no se lo atribuyas a nadie."
+  else
+    ATRIBUCION="Antes de responder lo primero que te pida el usuario, escribí UNA sola línea que empiece con \"One Brain:\" diciendo qué te trajo el cerebro del equipo y de cuándo es. Ejemplo: \"One Brain: traje el último movimiento del equipo, del 24/07/2026\". Una línea sola, y seguí con lo que te pidieron. Lo que llegó no viene firmado, así que no se lo atribuyas a ninguna persona: no inventes autores."
+  fi
+  ob_append "$ATRIBUCION"
+  ob_append "$OB_BLOCK"
+fi
+
+# --- Entrega ------------------------------------------------------------------------------
 # Techo final, por si la suma de los topes se pasa igual (varios bloques grandes a la vez).
-printf '%s\n' "$CONTEXT" | ob_clip "$OB_MAX_TOTAL"
-printf '\n'
+OB_TECHO=no
+if [ "$(printf '%s' "$CONTEXT" | ob_chars)" -gt "$OB_MAX_TOTAL" ] 2>/dev/null; then OB_TECHO=si; fi
+OB_OUT=$(printf '%s\n' "$CONTEXT" | ob_clip "$OB_MAX_TOTAL")
+[ -n "$CONTEXT" ] && OB_STDOUT="$OB_OUT$NL$NL" || OB_STDOUT=""
+printf '%s' "$OB_STDOUT"
+
+# Telemetría de ENTREGA: qué salió de acá, medido sobre lo que se escribió a stdout y no sobre
+# lo que creemos que se escribió. Es lo único que después permite contestar "¿el contexto del
+# equipo llegó entero?" sin adivinar — el 62% de las sesiones se perdía por tamaño y nadie se
+# enteraba. Va a un archivo local; el contexto del modelo no lleva ni un carácter de esto.
+ob_log_delivery "$SESSION" \
+  "$(printf '%s' "$OB_STDOUT" | ob_chars)" \
+  "$(printf '%s' "$OB_STDOUT" | wc -c | tr -d ' ')" \
+  "$OB_CLIPPED" "$OB_TECHO"
 exit 0

@@ -18,6 +18,7 @@ Diagnosticás la instalación de esta máquina y devolvés un veredicto claro co
    - **parser** — si los hooks pueden leer lo que les manda Claude Code (si esto falla, la captura automática no anda aunque todo lo demás esté bien).
    - **hooks** — si `disableAllHooks` está apagando todos los hooks del sistema.
    - **carpeta** — si existe la carpeta de trabajo con su `CLAUDE.md`.
+   - **entrega** — si el contexto que el cerebro manda al arrancar la sesión llegó entero o hubo que recortarlo por tamaño. Es la falla que más contexto se comió históricamente y desde afuera no se ve.
    - **conexion** — si el cerebro responde con este token.
    - **version** — qué versión está corriendo, comparada con la que Claude Code tiene instalada. Si actualizó el plugin sin reiniciar, la sesión sigue usando la vieja y da `aviso`.
 
@@ -32,6 +33,7 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 | `parser` | Actualizar el plugin: `/plugin marketplace update prophet` y `/plugin install one-brain@prophet`, después reiniciar Claude Code |
 | `hooks` | Sacar `"disableAllHooks": true` de `~/.claude/settings.json` y reiniciar |
 | `carpeta` | Correr el instalador de la carpeta de trabajo, o abrir Claude Code desde la carpeta donde tenga su `CLAUDE.md` |
+| `entrega` en `aviso` | Nada se perdió: el material recortado se vuelve a pedir en el próximo arranque. Si pasa en todos los arranques, desde el panel se pueden apagar los bloques que no use (Digest del equipo, Resumen de sesión) para que el que sí le importa entre completo; si no, avisarle al operador |
 | `conexion` 401/403 | El token no vale más: pedir uno nuevo y volver a conectar |
 | `conexion` sin respuesta | Probar la red/VPN y reintentar; si sigue, avisarle al operador |
 | `version` en `aviso` | Reiniciar Claude Code. Actualizó el plugin con la sesión abierta: quedó corriendo la versión vieja y los comandos nuevos no están disponibles. No hace falta volver a instalar nada |

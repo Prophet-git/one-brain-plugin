@@ -180,6 +180,19 @@ grep -q 'brain_save' "$SK" 2>/dev/null; assert_eq "skill referencia brain_save" 
 grep -q 'onebrain-save' "$SK" 2>/dev/null; assert_eq "skill referencia onebrain-save (canal a prueba de deferred)" 0 "$?"
 grep -q 'onebrain-resolve-pending' "$SK" 2>/dev/null; assert_eq "skill referencia onebrain-resolve-pending" 0 "$?"
 grep -qE '\.jsonl' "$SK" 2>/dev/null; assert_eq "skill aclara cómo sacar el session-id del transcript (aviso solo trae la ruta)" 0 "$?"
+# La skill decía "onebrain-save no expone supersedes, usá la tool MCP": mientras eso siga
+# escrito, el flag nuevo no existe para el modelo (y la tool MCP suele estar deferred, que es
+# justamente por lo que existe el bin). Una instrucción desactualizada pesa más que el binario.
+grep -q 'no los expone' "$SK" 2>/dev/null; assert_eq "session-capture ya NO dice que el bin no expone supersedes" 1 "$?"
+grep -q -- '--supersedes' "$SK" 2>/dev/null; assert_eq "session-capture enseña --supersedes en el bin" 0 "$?"
+# Drift con A-5 (tanda 0) y con el dead-letter: la skill enseñaba que CUALQUIER fallo del bin
+# deja la memoria "encolada, pendiente, no perdida". Desde que un 4xx ya no se encola eso es
+# falso justo en el caso que necesita acción inmediata — y el modelo, siguiendo la doc, le
+# informa al usuario que su memoria está a salvo cuando en realidad se descartó.
+grep -q 'rechazó la memoria' "$SK" 2>/dev/null
+assert_eq "session-capture distingue el rechazo del server (4xx) del encolado" 0 "$?"
+grep -qi 'reintent' "$SK" 2>/dev/null
+assert_eq "session-capture dice que ante un rechazo hay que corregir y reintentar en el momento" 0 "$?"
 
 # --- session-start.sh: fallback de pending anterior ---
 # NOTA: aísla con HOME (ya no CLAUDE_PLUGIN_DATA) — mismo motivo que arriba.
@@ -391,11 +404,59 @@ assert_eq "headers: cae a ONE_BRAIN_TOKEN" '{"Authorization":"Bearer ob_desde_en
 
 assert_eq "headers: sin nada => objeto vacío" '{}' "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
 
+# --- skill onboard: el onboarding tiene que dejar el cerebro CON ALGO ADENTRO (T1.1) ---
+# Causa raíz de que 3 de los 4 cerebros vivos estén en CERO memorias: la persona escribía su
+# constitución y quedaba con un cerebro vacío, así que su primera consulta no devolvía nada y
+# abandonaba. Estos chequeos son sobre el TEXTO de la skill porque quien la ejecuta es el
+# modelo: acá se defiende que las instrucciones que gobiernan esa ejecución sigan estando.
+OBK="$ROOT/skills/onboard/SKILL.md"
+[ -f "$OBK" ]; assert_eq "skill onboard existe" 0 "$?"
+grep -q '^description:' "$OBK" 2>/dev/null; assert_eq "onboard tiene description" 0 "$?"
+grep -q 'onebrain-constitution' "$OBK" 2>/dev/null; assert_eq "onboard guarda la constitución con el bin" 0 "$?"
+grep -q 'onebrain-save' "$OBK" 2>/dev/null; assert_eq "onboard siembra memorias con onebrain-save" 0 "$?"
+grep -qE '8 (a|y|-)+ ?12|8-12' "$OBK" 2>/dev/null; assert_eq "onboard fija el rango 8-12 hechos" 0 "$?"
+grep -q -- '--entities' "$OBK" 2>/dev/null; assert_eq "la siembra pasa entidades (sin grafo no hay recuperación)" 0 "$?"
+# Las tres defensas contra fabricar datos, que es el riesgo que introduce pedir volumen:
+grep -qi 'no inventes' "$OBK" 2>/dev/null; assert_eq "onboard prohíbe inventar" 0 "$?"
+grep -qi 'señalar la frase' "$OBK" 2>/dev/null; assert_eq "onboard exige poder señalar la frase que dijo la persona" 0 "$?"
+grep -qi 'rellen' "$OBK" 2>/dev/null; assert_eq "onboard prohíbe rellenar para llegar al número" 0 "$?"
+grep -qiE 'antes de guardar' "$OBK" 2>/dev/null; assert_eq "onboard muestra la lista ANTES de guardar (la persona corrige)" 0 "$?"
+grep -qiE 'menos de 8' "$OBK" 2>/dev/null; assert_eq "onboard dice qué hacer si no hay material para 8" 0 "$?"
+# El cierre: que la persona VEA que el cerebro ya devuelve algo (y que hay escalera para leer la
+# memoria entera, no solo el recorte de 300 chars que devuelve la búsqueda).
+grep -q 'brain_search' "$OBK" 2>/dev/null; assert_eq "onboard verifica con brain_search que el cerebro devuelve algo" 0 "$?"
+grep -q 'brain_get' "$OBK" 2>/dev/null; assert_eq "onboard nombra brain_get (leer la memoria entera)" 0 "$?"
+# Si no es admin, la constitución da 403 — pero sembrar NO requiere admin. Antes, un 403 dejaba
+# a esa persona con el cerebro igual de vacío que si no hubiera hecho el onboarding.
+grep -q '403' "$OBK" 2>/dev/null; assert_eq "onboard contempla el 403 de constitución sin abortar la siembra" 0 "$?"
+
+# El comando de ejemplo de la skill se EJECUTA de verdad, no se lee. Es la clase de drift que ya
+# nos pasó: session-capture le enseñó al modelo durante meses un dato falso sobre este mismo bin.
+# Un flag mal escrito en la doc = exit 2 y la siembra entera cae sin que nadie lo note hasta que
+# un cliente hace el onboarding. Sin token => el payload termina en la cola, no toca ningún
+# cerebro real, y así se puede inspeccionar lo que se habría mandado.
+CMD_SIEMBRA=$(sed -n '/onebrain-save --type/,/--entities/p' "$OBK")
+export HOME="$(mktemp -d)"
+( export PATH="$ROOT/bin:$PATH"; eval "$CMD_SIEMBRA" ) >/dev/null 2>&1
+assert_eq "el comando de siembra que documenta la skill corre (exit 0)" 0 "$?"
+QFILE_SIEMBRA=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -q '"type":"conocimiento"' "$QFILE_SIEMBRA" 2>/dev/null
+assert_eq "el ejemplo produce un payload con el type documentado" 0 "$?"
+grep -q '"entities":\["cliente","persona","tema"\]' "$QFILE_SIEMBRA" 2>/dev/null
+assert_eq "el ejemplo linkea entidades de verdad (no las pierde en el parseo)" 0 "$?"
+
 # --- skill doctor ---
 DTK="$ROOT/skills/doctor/SKILL.md"
 [ -f "$DTK" ]; assert_eq "skill doctor existe" 0 "$?"
 grep -q '^name:' "$DTK" 2>/dev/null; assert_eq "doctor tiene name" 0 "$?"
 grep -q 'onebrain-doctor' "$DTK" 2>/dev/null; assert_eq "doctor invoca el ejecutable" 0 "$?"
+# Drift de doc: la skill enumera los chequeos para el modelo, y la regla que tiene escrita es
+# "no inventes chequeos que el comando no hizo". El inverso también aplica — un chequeo nuevo
+# que la skill no nombra es un chequeo que nadie va a explicar. Ya nos pasó con session-capture.
+for _chk in token curl parser hooks carpeta entrega conexion version; do
+  grep -q "\*\*$_chk\*\*" "$DTK" 2>/dev/null
+  assert_eq "la skill doctor documenta el chequeo '$_chk'" 0 "$?"
+done
 
 # --- ob_enqueue: si el guardado falla, el entry queda en cola (no se pierde) ---
 export HOME="$(mktemp -d)"
@@ -515,6 +576,69 @@ QFILE_AREA=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
 grep -q '"area":"ventas"' "$QFILE_AREA"
 assert_eq "onebrain-save con --area ventas: el payload incluye area:ventas" 0 "$?"
 
+# --- onebrain-save: --supersedes (P.3) ---
+# De 529 entradas en prod hay CERO invalidadas: el server soporta `supersedes` desde siempre
+# (brainSave marca la vieja con invalidated_at/invalidated_by) pero el bin —el canal que usan
+# las skills— no lo exponía, así que el cerebro acumula decisiones contradictorias sin ninguna
+# señal de cuál vale. Misma técnica que los tests de --area: sin token, el payload se inspecciona
+# en la cola en vez de montar un server.
+SUP_UUID="8f3d0a1e-2b4c-4d6e-9f01-23456789abcd"
+export HOME="$(mktemp -d)"
+"$SAVEBIN" --type decision --title "T" --content "C" --supersedes "$SUP_UUID" >/dev/null 2>&1
+QFILE_SUP=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -q "\"supersedes\":\"$SUP_UUID\"" "$QFILE_SUP" 2>/dev/null
+assert_eq "onebrain-save --supersedes <uuid>: el payload lo incluye" 0 "$?"
+
+# Sin el flag, la clave NO va: el server valida `supersedes` como uuid, así que mandar "" sería
+# un 400 en cada guardado normal (mismo razonamiento que --area, distinto motivo).
+export HOME="$(mktemp -d)"
+"$SAVEBIN" --type avance --title "T" --content "C" >/dev/null 2>&1
+QFILE_NOSUP=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -q '"supersedes"' "$QFILE_NOSUP" 2>/dev/null
+assert_eq "onebrain-save sin --supersedes: el payload NO incluye la clave" 1 "$?"
+
+# Un id que no es uuid se rechaza ACÁ, no allá: el server contesta 400 y (desde A-5) un 4xx no
+# se encola, así que el usuario perdería la memoria entera por un id mal copiado. Fallar antes
+# de armar el payload deja la memoria intacta para reintentar con el id bueno.
+export HOME="$(mktemp -d)"
+ERR_SUP=$("$SAVEBIN" --type decision --title "T" --content "C" --supersedes "la-decision-vieja" 2>&1 >/dev/null)
+assert_eq "--supersedes con valor que no es uuid => exit 2" 2 "$?"
+printf '%s' "$ERR_SUP" | grep -qi 'uuid'
+assert_eq "el error explica que se espera un uuid (no 'opción desconocida')" 0 "$?"
+CNT_SUP=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | wc -l | tr -d ' ')
+assert_eq "uuid inválido: no encola nada (no se guarda a medias)" 0 "$CNT_SUP"
+
+# El server contesta 200 con `warning` cuando el id existe pero no invalidó nada (no es una
+# decisión, o es de otro cerebro). Tragarse ese warning es exactamente el bug que estamos
+# arreglando: el usuario creería que reemplazó la decisión vieja y quedarían las dos vigentes.
+FAKE_W=$(mktemp -d)
+cat > "$FAKE_W/curl" <<'FAKEWARN'
+#!/bin/sh
+printf '{"entry_id":"entry-nuevo-1","linked_entities":[],"warning":"supersedes: no se encontró una decisión con ese id en este cerebro; nada fue reemplazado."}\n200'
+FAKEWARN
+chmod +x "$FAKE_W/curl"
+H_W=$(mktemp -d); mkdir -p "$H_W/.config/one-brain"
+printf 'ob_token_fake_de_test' > "$H_W/.config/one-brain/token"
+ERR_W=$(env HOME="$H_W" PATH="$FAKE_W:$PATH" "$SAVEBIN" --type decision --title "T" --content "C" --supersedes "$SUP_UUID" 2>&1 >/dev/null)
+printf '%s' "$ERR_W" | grep -q 'nada fue reemplazado'
+assert_eq "el warning del server (no invalidó nada) se muestra, no se traga" 0 "$?"
+OUT_W=$(env HOME="$H_W" PATH="$FAKE_W:$PATH" "$SAVEBIN" --type decision --title "T" --content "C" --supersedes "$SUP_UUID" 2>/dev/null)
+assert_eq "con warning, igual imprime el entry_id (el save fue OK)" "entry-nuevo-1" "$OUT_W"
+env HOME="$H_W" PATH="$FAKE_W:$PATH" "$SAVEBIN" --type decision --title "T" --content "C" --supersedes "$SUP_UUID" >/dev/null 2>&1
+assert_eq "guardado con warning => exit 0 (el aviso no convierte el éxito en falla)" 0 "$?"
+
+# Y el camino normal (200 sin warning) sigue mudo en stderr y con exit 0: el aviso nuevo no
+# puede empezar a hablar en cada guardado.
+FAKE_OK=$(mktemp -d)
+cat > "$FAKE_OK/curl" <<'FAKEOK'
+#!/bin/sh
+printf '{"entry_id":"entry-limpio-2","linked_entities":[]}\n200'
+FAKEOK
+chmod +x "$FAKE_OK/curl"
+ERR_OK=$(env HOME="$H_W" PATH="$FAKE_OK:$PATH" "$SAVEBIN" --type avance --title "T" --content "C" 2>&1 >/dev/null)
+assert_eq "guardado normal => exit 0" 0 "$?"
+assert_eq "guardado normal => stderr vacío" "" "$ERR_OK"
+
 # --- ob_flush_queue: reapea inflight-* huérfanos (proceso murió entre el claim-by-rename y el
 # save) — sin esto quedaban en inflight-* PARA SIEMPRE, el glob del loop solo toma queued-*.
 # Se stubea ob_try_save para que SIEMPRE falle: así el resultado observado ("terminó como
@@ -600,7 +724,318 @@ assert_eq "--entities sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HO
 # Un flag mal escrito perdía datos en silencio (`*) shift`): la memoria se guardaba igual, sin
 # las entidades o sin el área que el modelo creía haber pasado.
 assert_eq "flag desconocido => error 2 (no se traga el dato)" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --entidades a,b)"
+# --supersedes hereda el mismo guard: es un flag NUEVO, y el `shift 2` sin valor cuelga igual
+# que colgaba en los otros cinco. Sin este caso, el bug de P.2 volvía a entrar por la puerta nueva.
+assert_eq "--supersedes sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --supersedes)"
 rm -rf "$TMP_HOME"
+
+# --- T1.3: hacer VISIBLE el retorno del cerebro (quién lo escribió y cuándo) ---------------
+# Todo lo que trae el cerebro entra como additionalContext de un hook: lo consume el MODELO y
+# la persona nunca ve que eso que Claude "ya sabe" lo escribió un compañero. El momento "ajá"
+# del producto es justamente el cruce entre dos personas — hoy sólo pasa en la reunión de
+# venta, nunca adentro del producto. Lo que no se atribuye, no se renueva.
+#
+# El material SÍ trae los datos: buildTeamBrief formatea cada entrada como
+# "- **Título** ([[Autor]] · 24/07/2026): ..." (src/tools/brain-context.ts, fmt()). Lo que
+# faltaba era pedirle a Claude que lo dijera. Estos tests corren el hook DE VERDAD contra un
+# curl falso que devuelve un brief con autor, y verifican la instrucción en la salida real.
+# El fake lee el body de un ARCHIVO en vez de tenerlo incrustado: el JSON pasa por un solo
+# nivel de escapado en vez de tres (heredoc → printf → JSON), que es donde se cuela el bug de
+# test que hace pasar un caso por el motivo equivocado.
+fake_curl_brief() { # <archivo-curl-destino> <archivo-con-el-json>
+  cat > "$1" <<FAKEB
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    */api/context) printf '%s\n200' "\$(cat '$2')"; exit 0 ;;
+    */api/*) exit 0 ;;
+  esac
+done
+FAKEB
+  chmod +x "$1"
+}
+run_start_con_brief() { # <archivo-con-el-json> -> imprime la salida REAL del hook
+  _fb=$(mktemp -d); fake_curl_brief "$_fb/curl" "$1"
+  _hb=$(mktemp -d); mkdir -p "$_hb/.config/one-brain"
+  printf 'ob_token_fake_de_test' > "$_hb/.config/one-brain/token"
+  # apaga el aviso de reuniones (1×/día, independiente de todo esto) para no ensuciar la salida
+  printf '{"reuniones":false}' > "$_hb/.config/one-brain/features.json"
+  printf '{"session_id":"t13","source":"startup"}' \
+    | HOME="$_hb" PATH="$_fb:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null
+}
+
+JSON_DIR=$(mktemp -d)
+# Con autor Y con comillas dobles adentro del valor: el brief real las trae, y son lo que
+# rompía el JSON armado a mano antes de P.1.
+printf '{"brief":"## Decisiones vigentes\\n- **Pasamos la carga a Postgres** ([[Fran]] · 24/07/2026): la planilla no aguanta el volumen, dijo \\"no da mas\\""}' > "$JSON_DIR/con-autor.json"
+OUT_T13=$(run_start_con_brief "$JSON_DIR/con-autor.json")
+printf '%s' "$OUT_T13" | grep -q 'Fran'
+assert_eq "T1.3: el brief con autor llega al contexto (precondición)" 0 "$?"
+printf '%s' "$OUT_T13" | grep -qi 'antes de responder'
+assert_eq "T1.3: pide decirlo ANTES de contestar lo primero que le pidan" 0 "$?"
+printf '%s' "$OUT_T13" | grep -qi 'una .*línea'
+assert_eq "T1.3: pide UNA línea (no un resumen que se coma el turno)" 0 "$?"
+printf '%s' "$OUT_T13" | grep -qiE 'quién lo escribió|persona.*fecha|autor.*fecha'
+assert_eq "T1.3: exige nombrar a la persona y la fecha" 0 "$?"
+printf '%s' "$OUT_T13" | grep -qi 'no.*invent'
+assert_eq "T1.3: prohíbe inventar la atribución" 0 "$?"
+# Probado con el brief real: sin decírselo, el modelo copia la firma tal cual y le escribe
+# "[[Bauti]]" a la persona. El wikilink es sintaxis interna del cerebro, no algo para leer.
+printf '%s' "$OUT_T13" | grep -qi 'sin los corchetes'
+assert_eq "T1.3: pide el nombre sin los corchetes del wikilink" 0 "$?"
+
+# Un brief SIN autor (entradas cuyo users.name es null: fmt() emite sólo la fecha) NO puede
+# disparar el pedido de nombrar a una persona — pedir atribución que no está en el material es
+# pedirle al modelo que la invente, y una atribución falsa es peor que ninguna.
+printf '{"brief":"## Ultimo movimiento del equipo\\n- **Se migro el scraper** (24/07/2026): sin firma de autor"}' > "$JSON_DIR/sin-autor.json"
+OUT_T13S=$(run_start_con_brief "$JSON_DIR/sin-autor.json")
+printf '%s' "$OUT_T13S" | grep -q 'scraper'
+assert_eq "T1.3: el brief sin autor igual llega (precondición)" 0 "$?"
+printf '%s' "$OUT_T13S" | grep -qi 'quién lo escribió'
+assert_eq "T1.3: sin autor en el material, NO pide nombrar a la persona" 1 "$?"
+printf '%s' "$OUT_T13S" | grep -qi 'antes de responder'
+assert_eq "T1.3: sin autor igual pide decir qué trajo (y de cuándo)" 0 "$?"
+
+# Trampa: los cuerpos de las memorias están LLENOS de wikilinks (así escribe el equipo), así que
+# "el brief contiene [[" no significa "el brief está firmado". La firma que emite fmt() es
+# exactamente "([[Autor]] · fecha)": si se detecta sólo por los corchetes, un brief sin autor con
+# un [[link]] en el texto hace que le pidamos al modelo atribuir a una nota, no a una persona.
+printf '{"brief":"## Ultimo movimiento\\n- **Se migro el scraper** (24/07/2026): ver [[playwright-cli]] y [[self-scraper]] para el detalle"}' > "$JSON_DIR/wikilink-sin-autor.json"
+OUT_T13W=$(run_start_con_brief "$JSON_DIR/wikilink-sin-autor.json")
+printf '%s' "$OUT_T13W" | grep -q 'playwright-cli'
+assert_eq "T1.3: el brief con wikilinks en el cuerpo llega (precondición)" 0 "$?"
+printf '%s' "$OUT_T13W" | grep -qi 'quién lo escribió'
+assert_eq "T1.3: wikilinks en el cuerpo NO se confunden con firma de autor" 1 "$?"
+
+# Sin brief no hay nada que atribuir: la instrucción no debe aparecer (gasta presupuesto y le
+# pide al modelo que anuncie algo que no recibió).
+printf '{"brief":""}' > "$JSON_DIR/vacio.json"
+OUT_T13N=$(run_start_con_brief "$JSON_DIR/vacio.json")
+printf '%s' "$OUT_T13N" | grep -qi 'antes de responder'
+assert_eq "T1.3: sin brief no se emite la instrucción" 1 "$?"
+
+# El techo de 8000 sigue mandando DESPUÉS de sumar la instrucción (P.1: pasarse de ~9 KB hace
+# que Claude Code reemplace todo por un preview de 2 KB y el contexto del equipo desaparezca).
+# ~40.000 caracteres de brief con acentos, ñ y comillas escapadas, como el brief real.
+awk 'BEGIN{
+  printf "{\"brief\":\"";
+  for(i=0;i<400;i++) printf "- **Decisión %d** ([[Fran]] · 24/07/2026): texto largo con acentos ñandúes y \\\"comillas\\\" adentro. ", i;
+  printf "\"}";
+}' > "$JSON_DIR/gigante.json"
+OUT_T13G=$(run_start_con_brief "$JSON_DIR/gigante.json")
+CHARS_T13G=$(printf '%s' "$OUT_T13G" | ob_chars)
+[ "$CHARS_T13G" -le 8000 ]
+assert_eq "T1.3: con brief gigante la salida sigue bajo el techo de 8000" 0 "$?"
+printf '%s' "$OUT_T13G" | grep -qi 'antes de responder'
+assert_eq "T1.3: con brief gigante la instrucción NO se pierde en el recorte" 0 "$?"
+
+# El presupuesto se reparte por bloque, pero el TECHO global recorta por el final — así que el
+# orden de ensamblado decide quién sobrevive cuando varios bloques grandes coinciden. Encontrado
+# ejecutando el hook de verdad contra un server con el brief REAL de prod (5.431 chars) + un
+# resume largo + menciones: la salida pegó el techo y se comió el aviso de "trabajo SIN GUARDAR",
+# el recordatorio del canal de guardado y media orden de curl de la síntesis. El comentario del
+# propio script promete que esos avisos cortos "nunca se recortan: son los que no pueden
+# perderse" — la promesa no se estaba cumpliendo. Lo que puede recortarse es MATERIAL (el brief
+# se vuelve a pedir en el próximo arranque); una instrucción operativa perdida no se recupera.
+JSON_BIG=$(mktemp -d)
+awk 'BEGIN{
+  printf "{\"brief\":\"";
+  for(i=0;i<200;i++) printf "- **Decisión %d** ([[Fran]] · 24/07/2026): cuerpo de la decisión con acentos ñandúes. ", i;
+  printf "\", \"resume\":\"";
+  for(i=0;i<200;i++) printf "Retomá donde quedaste, detalle largo del handoff número %d. ", i;
+  printf "\", \"mentions\":\"";
+  for(i=0;i<40;i++) printf "Fran te mencionó en el hilo %d y pidió que revises el DSN. ", i;
+  printf "\", \"period_key\":\"2026-07-25\", \"hello\":\"";
+  for(i=0;i<30;i++) printf "Bienvenido a One Brain, la memoria del equipo (parrafo %d). ", i;
+  printf "\"}";
+}' > "$JSON_BIG/todo.json"
+FBB=$(mktemp -d)
+cat > "$FBB/curl" <<FAKEALL
+#!/bin/sh
+for a in "\$@"; do
+  case "\$a" in
+    */api/context) printf '%s\n200' "\$(cat '$JSON_BIG/todo.json')"; exit 0 ;;
+    */api/features) exit 0 ;;
+    */api/*) cat '$JSON_BIG/todo.json'; exit 0 ;;
+  esac
+done
+FAKEALL
+chmod +x "$FBB/curl"
+HBB=$(mktemp -d); mkdir -p "$HBB/.config/one-brain/pending"
+printf 'ob_token_fake_de_test' > "$HBB/.config/one-brain/token"
+printf 'transcript=/tmp/vieja.jsonl\ncwd=/proj\n' > "$HBB/.config/one-brain/pending/pending-anterior"
+OUT_FULL=$(printf '{"session_id":"presu","source":"startup"}' \
+  | HOME="$HBB" PATH="$FBB:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null)
+CHARS_FULL=$(printf '%s' "$OUT_FULL" | ob_chars)
+[ "$CHARS_FULL" -le 8100 ]
+assert_eq "presupuesto: el peor caso sigue acotado (techo 8000 + marca de recorte)" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -q 'trabajo SIN GUARDAR'
+assert_eq "presupuesto: el aviso de trabajo sin guardar sobrevive al techo" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -q 'onebrain-save'
+assert_eq "presupuesto: el canal de guardado sobrevive al techo" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -q 'api/synthesis$'
+assert_eq "presupuesto: la orden de curl de la síntesis llega ENTERA (no cortada al medio)" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -qi 'antes de responder'
+assert_eq "presupuesto: la instrucción de atribución sobrevive al techo" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -q 'Decisión 0'
+assert_eq "presupuesto: el brief igual llega (lo que se recorta es material, no instrucciones)" 0 "$?"
+
+# --- Telemetría de ENTREGA del hook --------------------------------------------------------
+# La deuda decía "bytes emitidos, truncado sí/no, JSON válido sí/no". Después de P.1 la salida
+# ya NO es JSON, así que el "JSON válido" no aplica; lo que importa sigue igual: poder contestar
+# "¿lo que el hook emitió salió entero o se recortó?" sin adivinar. Se registra en un archivo
+# local, NUNCA en stdout: stdout es el contexto que consume el modelo y no puede llevar ruido.
+assert_eq "ob_chars cuenta CARACTERES, no bytes (ñandúes = 7)" 7 "$(printf 'ñandúes' | ob_chars)"
+assert_eq "ob_chars de vacío = 0" 0 "$(printf '' | ob_chars)"
+
+export HOME="$(mktemp -d)"
+ob_log_delivery "sess-tel" 1234 1300 "brief" "no"
+DLOG="$(ob_config_dir)/delivery.log"
+[ -s "$DLOG" ]; assert_eq "telemetría: escribe el log de entrega" 0 "$?"
+grep -q 'chars=1234' "$DLOG"; assert_eq "telemetría: registra los caracteres emitidos" 0 "$?"
+grep -q 'bytes=1300' "$DLOG"; assert_eq "telemetría: registra los bytes emitidos" 0 "$?"
+grep -q 'recortes=brief' "$DLOG"; assert_eq "telemetría: registra QUÉ bloque se recortó" 0 "$?"
+grep -q 'techo=no' "$DLOG"; assert_eq "telemetría: registra si pegó el techo global" 0 "$?"
+# Un log que crece sin fin en la máquina del cliente es deuda: se rota solo.
+i=0; while [ "$i" -lt 450 ]; do ob_log_delivery "s$i" 10 10 "" "no"; i=$((i+1)); done
+LOGLINES=$(wc -l < "$DLOG" | tr -d ' ')
+[ "$LOGLINES" -le 400 ]; assert_eq "telemetría: el log se rota (no crece sin fin)" 0 "$?"
+
+# End-to-end: el hook REAL deja la medición de lo que emitió, y no la mete en el contexto.
+printf '{"brief":"brief corto sin recortes"}' > "$JSON_DIR/corto.json"
+FBT=$(mktemp -d); fake_curl_brief "$FBT/curl" "$JSON_DIR/corto.json"
+HBT=$(mktemp -d); mkdir -p "$HBT/.config/one-brain"
+printf 'ob_token_fake_de_test' > "$HBT/.config/one-brain/token"
+printf '{"reuniones":false}' > "$HBT/.config/one-brain/features.json"
+OUT_TEL=$(printf '{"session_id":"tel-1","source":"startup"}' \
+  | HOME="$HBT" PATH="$FBT:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null)
+DLOG2="$HBT/.config/one-brain/delivery.log"
+[ -s "$DLOG2" ]; assert_eq "telemetría e2e: el hook registra su entrega" 0 "$?"
+grep -q 'session=tel-1' "$DLOG2"; assert_eq "telemetría e2e: la línea identifica la sesión" 0 "$?"
+CHARS_REALES=$(printf '%s' "$OUT_TEL" | ob_chars)
+CHARS_LOG=$(sed -n 's/.*chars=\([0-9]*\).*/\1/p' "$DLOG2" | head -n1)
+# El log mide lo que el hook escribe en stdout, incluidos los DOS saltos de cierre; el
+# command substitution que captura la salida acá se come los trailing newlines. De ahí los 2
+# exactos de diferencia: se exige la igualdad con ese offset, no una tolerancia difusa.
+assert_eq "telemetría e2e: los chars registrados son los REALMENTE emitidos" "$CHARS_LOG" "$((CHARS_REALES + 2))"
+printf '%s' "$OUT_TEL" | grep -qE 'chars=|delivery\.log'
+assert_eq "telemetría e2e: NO ensucia el contexto que consume el modelo" 1 "$?"
+
+# Con un brief gigante, la telemetría tiene que decir QUÉ se recortó — es justamente el caso
+# que dejaba al equipo sin contexto sin que nadie se enterara.
+FBG=$(mktemp -d); fake_curl_brief "$FBG/curl" "$JSON_DIR/gigante.json"
+HBG=$(mktemp -d); mkdir -p "$HBG/.config/one-brain"
+printf 'ob_token_fake_de_test' > "$HBG/.config/one-brain/token"
+printf '{"reuniones":false}' > "$HBG/.config/one-brain/features.json"
+printf '{"session_id":"tel-2","source":"startup"}' \
+  | HOME="$HBG" PATH="$FBG:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" >/dev/null 2>&1
+grep -q 'recortes=.*brief' "$HBG/.config/one-brain/delivery.log"
+assert_eq "telemetría: con brief gigante marca el recorte del brief" 0 "$?"
+
+# El doctor es el único lugar donde alguien mira el estado del plugin: una telemetría que vive
+# en un archivo que nadie sabe que existe no contesta nada. El chequeo traduce la última entrega.
+DOC_E=$(mktemp -d); mkdir -p "$DOC_E/.config/one-brain"
+assert_eq "doctor: sin telemetría todavía => aviso" "aviso" \
+  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')")"
+printf '2026-07-26T14:00:00Z session=s1 chars=4200 bytes=4300 recortes=ninguno techo=no\n' > "$DOC_E/.config/one-brain/delivery.log"
+assert_eq "doctor: última entrega completa => ok" "ok" \
+  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')")"
+printf '2026-07-26T15:00:00Z session=s2 chars=8018 bytes=8200 recortes=resume,brief techo=si\n' >> "$DOC_E/.config/one-brain/delivery.log"
+SAL_E=$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')
+assert_eq "doctor: última entrega recortada => aviso" "aviso" "$(estado "$SAL_E")"
+printf '%s' "$(detalle "$SAL_E")" | grep -q 'resume,brief'
+assert_eq "doctor: el aviso nombra los bloques recortados" 0 "$?"
+
+# --- Falso positivo de "trabajo sin guardar" -----------------------------------------------
+# Repro con formato REAL (sacado de un transcript de verdad, ~/.claude/projects): el usuario
+# escribe UN "hola" después de un /clear y ya son TRES líneas type:user+role:user sin
+# tool_result — el caveat isMeta que Claude Code inyecta, el eco del /clear y el "hola". El
+# contador viejo llega a u=3 y avisa "quedó trabajo sin guardar" de una sesión donde no se
+# tocó un solo archivo. Medido sobre 123 transcripts reales: 10 falsos positivos, 0 falsos
+# negativos. La señal correcta es el promptId (uno por turno REAL del usuario, compartido por
+# todos los tool_results de ese turno), excluyendo los isMeta.
+assert_eq "falso positivo: /clear + 'hola' NO es trabajo sin guardar" 0 \
+  "$(ob_has_unsaved_work "$FIX/falso-positivo-hola.jsonl")"
+# Mismo caso con imágenes: un solo prompt con 2 adjuntas mete 4 mensajes isMeta.
+assert_eq "falso positivo: un prompt con imágenes adjuntas NO es trabajo sin guardar" 0 \
+  "$(ob_has_unsaved_work "$FIX/falso-positivo-imagenes.jsonl")"
+# Y lo que SÍ tiene que seguir avisando: 3 turnos REALES (3 promptId distintos), sin edits.
+assert_eq "3 turnos reales del usuario (3 promptId) => sigue avisando" 1 \
+  "$(ob_has_unsaved_work "$FIX/conversational-promptid.jsonl")"
+# Un turno con 20 tool_results comparte el promptId del turno: no infla el contador.
+assert_eq "1 turno con muchos tool_results => 0 (el promptId es el mismo)" 0 \
+  "$(ob_has_unsaved_work "$FIX/un-turno-muchos-tools.jsonl")"
+# Un Edit sigue siendo trabajo sin guardar aunque haya UN solo turno.
+assert_eq "1 turno con Edit => sigue siendo trabajo sin guardar" 1 \
+  "$(ob_has_unsaved_work "$FIX/falso-positivo-hola-con-edit.jsonl")"
+
+# --- Dead-letter en la cola de reintento ---------------------------------------------------
+# P.2 cerró la mitad: onebrain-save ya no ENCOLA un 4xx. Pero el otro camino seguía abierto —
+# ob_flush_queue reintenta lo que YA está en la cola sin mirar el código, así que un payload
+# que el server rechaza (encolado antes del fix, o encolado sin token, donde nadie lo validó)
+# vuelve a la cola en CADA arranque, para siempre: segundos de curl inútil por arranque y una
+# memoria que la skill reporta como "pendiente, no perdida" y nunca va a entrar.
+export HOME="$(mktemp -d)"
+mkdir -p "$(ob_queue_dir)"
+printf '{"type":"avance","title":"","content_md":"C"}' > "$(ob_queue_dir)/queued-rechazado"
+FAKE_400=$(mktemp -d)
+cat > "$FAKE_400/curl" <<'FAKE400'
+#!/bin/sh
+printf '400'
+FAKE400
+chmod +x "$FAKE_400/curl"
+printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+PATH="$FAKE_400:$PATH" ob_flush_queue
+[ -e "$(ob_queue_dir)/queued-rechazado" ]
+assert_eq "dead-letter: un 400 NO vuelve a la cola de reintento" 1 "$?"
+ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
+assert_eq "dead-letter: el payload rechazado se conserva (no se borra en silencio)" 0 "$?"
+
+# Un 500 (o la red caída) SÍ tiene que volver a la cola: es transitorio, reintentar es correcto.
+export HOME="$(mktemp -d)"
+mkdir -p "$(ob_queue_dir)"
+printf '{"type":"avance","title":"T","content_md":"C"}' > "$(ob_queue_dir)/queued-transitorio"
+FAKE_500=$(mktemp -d)
+cat > "$FAKE_500/curl" <<'FAKE500'
+#!/bin/sh
+printf '503'
+FAKE500
+chmod +x "$FAKE_500/curl"
+printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+PATH="$FAKE_500:$PATH" ob_flush_queue
+[ -e "$(ob_queue_dir)/queued-transitorio" ]
+assert_eq "dead-letter: un 503 SÍ vuelve a la cola (falla transitoria)" 0 "$?"
+ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
+assert_eq "dead-letter: un 503 no se manda a dead-letter" 1 "$?"
+
+# 429 es rate limit, no "tu payload está mal": reintentar es lo correcto (mismo criterio que
+# onebrain-save, que encola 429 y rechaza el resto de los 4xx).
+export HOME="$(mktemp -d)"
+mkdir -p "$(ob_queue_dir)"
+printf '{"type":"avance","title":"T","content_md":"C"}' > "$(ob_queue_dir)/queued-429"
+FAKE_429=$(mktemp -d)
+cat > "$FAKE_429/curl" <<'FAKE429'
+#!/bin/sh
+printf '429'
+FAKE429
+chmod +x "$FAKE_429/curl"
+printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+PATH="$FAKE_429:$PATH" ob_flush_queue
+[ -e "$(ob_queue_dir)/queued-429" ]
+assert_eq "dead-letter: un 429 vuelve a la cola (rate limit, no payload malo)" 0 "$?"
+
+# Una memoria que quedó en dead-letter no puede desaparecer en silencio: el arranque lo dice,
+# con la ruta, para que el modelo la corrija y la reguarde.
+export HOME="$(mktemp -d)"
+mkdir -p "$(ob_queue_dir)"
+printf '{"type":"avance","title":"T","content_md":"C"}' > "$(ob_queue_dir)/dead-1"
+MSG_DEAD=$(ob_dead_message)
+printf '%s' "$MSG_DEAD" | grep -qi 'rechaz'
+assert_eq "dead-letter: hay aviso de memoria rechazada" 0 "$?"
+printf '%s' "$MSG_DEAD" | grep -q "$(ob_queue_dir)"
+assert_eq "dead-letter: el aviso dice DÓNDE quedó el payload" 0 "$?"
+export HOME="$(mktemp -d)"
+assert_eq "dead-letter: sin dead-* no hay aviso" "" "$(ob_dead_message)"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

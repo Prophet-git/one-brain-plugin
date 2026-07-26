@@ -29,6 +29,47 @@ sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado...]")' 
     END { if (length(buf) <= n) printf "%s", buf; else printf "%s\n[...recortado...]", substr(buf, 1, n) }' 2>/dev/null
 }
 
+# ob_chars — cuenta los CARACTERES de stdin (no los bytes). Misma cascada y mismo motivo que
+# ob_clip: en un producto que escribe todo en español, medir en bytes reporta un tamaño inflado
+# (cada acento pesa 2) y no dice nada sobre lo que el modelo realmente recibe. Lo usa la
+# telemetría de entrega y el chequeo del techo global.
+ob_chars() {
+  if command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys; sys.stdout.write(str(len(sys.stdin.buffer.read().decode("utf-8","replace"))))' 2>/dev/null
+    return
+  fi
+  if command -v perl >/dev/null 2>&1; then
+    perl -Mutf8 -CSD -0777 -ne 'print length($_)' 2>/dev/null
+    return
+  fi
+  # último recurso: wc -m cuenta caracteres si el locale es UTF-8 (si no, cae a bytes, que
+  # sigue siendo una medida útil aunque no exacta).
+  wc -m 2>/dev/null | tr -d ' \n'
+}
+
+# ob_log_delivery <session> <chars> <bytes> <bloques-recortados> <techo si|no>
+# Telemetría de ENTREGA del hook de arranque. Contesta la única pregunta que importa —
+# "¿lo que el hook emitió salió entero o se recortó, y qué se recortó?"— sin tener que
+# adivinar. Va a un archivo, NUNCA a stdout: stdout es el contexto que consume el modelo y
+# meterle ruido de instrumentación es envenenar justo lo que se está midiendo.
+# (La deuda original decía "JSON válido sí/no"; desde P.1 la salida es texto plano, así que
+# esa columna no existe más: no hay JSON que pueda quedar inválido.)
+ob_log_delivery() {
+  _ld=$(ob_config_dir)
+  mkdir -p "$_ld" 2>/dev/null || return 0
+  _lf="$_ld/delivery.log"
+  printf '%s session=%s chars=%s bytes=%s recortes=%s techo=%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)" "${1:-desconocida}" "${2:-0}" "${3:-0}" \
+    "${4:-ninguno}" "${5:-no}" >> "$_lf" 2>/dev/null
+  # Rotación: este archivo vive en la máquina del cliente y nadie lo va a podar a mano. Un log
+  # de diagnóstico que crece para siempre es una deuda que se paga sola.
+  _ll=$(wc -l < "$_lf" 2>/dev/null | tr -d ' ')
+  case "$_ll" in ''|*[!0-9]*) return 0 ;; esac
+  if [ "$_ll" -gt 400 ]; then
+    tail -n 200 "$_lf" > "$_lf.tmp" 2>/dev/null && mv "$_lf.tmp" "$_lf" 2>/dev/null
+  fi
+}
+
 # ob_json_field <campo> <json>
 # Extrae un campo string top-level del JSON que Claude Code pasa al hook. ROBUSTO al
 # formato (compacto O pretty-printed, con o sin espacios tras los ":") y a campos gigantes
@@ -107,19 +148,53 @@ ob_enqueue() {
   printf '%s' "$1" > "$_f"
 }
 
-# ob_try_save <payload>: intenta guardar; 0 si OK. En prod hace el curl a /api/entry.
+# ob_try_save <payload>: intenta guardar. En prod hace el curl a /api/entry.
 # --max-time 8 (no 15): consistente con las otras llamadas de red de session-start.sh,
 # que ya usan ese tope para no colgar el arranque si el server está lento/caído.
+#
+# TRES resultados, no dos (dead-letter):
+#   0 = guardado
+#   1 = falla TRANSITORIA (sin token todavía, red caída, 5xx, 429, timeout) → reintentar
+#   2 = RECHAZO permanente del server (4xx que no sea 429) → reintentarlo es condenarlo
+# onebrain-save ya aplica este criterio para lo que ENTRA a la cola (A-5, tanda 0), pero lo que
+# YA estaba encolado —o lo que se encoló sin token, donde ningún server lo validó— seguía
+# reintentándose para siempre: segundos de curl inútil en cada arranque y una memoria que la
+# skill reporta como "pendiente, no perdida" y nunca va a entrar.
 ob_try_save() {
   _tf="$(ob_config_dir)/token"
   _tok=""
   [ -r "$_tf" ] && _tok=$(tr -d ' \t\r\n' < "$_tf" 2>/dev/null)
+  # sin token no es un payload malo: es una instalación a medio conectar. Reintentable.
   [ -n "$_tok" ] || return 1
   _url="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
   _code=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer $_tok" -H "content-type: application/json" \
     -d "$1" "$_url/api/entry" 2>/dev/null)
-  [ "$_code" = "200" ]
+  case "$_code" in
+    200) return 0 ;;
+    # 429 es rate limit ("ahora no"), no "tu payload está mal": reintentar es lo correcto.
+    429) return 1 ;;
+    # 401/403 tampoco condenan el payload: el token venció y se puede reconectar. Reintentable
+    # a propósito — tirar la memoria de alguien porque su token expiró sería lo peor posible.
+    401|403) return 1 ;;
+    4??) return 2 ;;
+    *)   return 1 ;;
+  esac
+}
+
+# ob_dead_message: aviso si quedaron memorias que el server RECHAZÓ (dead-letter). Mandarlas
+# a una carpeta y no decir nada sería cambiar un bug ruidoso (reintento infinito) por uno mudo
+# (memoria perdida en silencio), que es peor. El aviso trae la ruta y qué hacer, para que el
+# modelo pueda corregir el payload y reguardarlo.
+ob_dead_message() {
+  _q=$(ob_queue_dir); [ -d "$_q" ] || return 0
+  _dn=0
+  for _d in "$_q"/dead-*; do
+    [ -e "$_d" ] || continue
+    _dn=$((_dn + 1))
+  done
+  [ "$_dn" -gt 0 ] || return 0
+  printf 'IMPORTANTE — One Brain rechazó %s memoria(s) al intentar guardarlas (el server dijo que el payload está mal, reintentarlas no las va a hacer entrar). Quedaron guardadas como archivos dead-* en %s. Leelas, corregí lo que esté mal (título o contenido vacío, demasiado largo) y reguardalas con onebrain-save; borrá el archivo dead-* recién cuando entre. Avisale al usuario.' "$_dn" "$_q"
 }
 
 # ob_flush_queue: reintenta cada queued-*; borra el que guarda OK, conserva el que falla.
@@ -159,11 +234,14 @@ ob_flush_queue() {
     _orig=$(basename "$_f")
     _cl="$_q/inflight-$$-$_orig"
     mv "$_f" "$_cl" 2>/dev/null || continue
-    if ob_try_save "$(cat "$_cl")"; then
-      rm -f "$_cl" 2>/dev/null
-    else
-      mv "$_cl" "$_q/$_orig" 2>/dev/null
-    fi
+    ob_try_save "$(cat "$_cl")"
+    case "$?" in
+      0) rm -f "$_cl" 2>/dev/null ;;
+      # DEAD-LETTER: el server rechazó el payload. Sale del ciclo de reintento pero NO se
+      # borra — el contenido es de alguien y se puede corregir a mano (ob_dead_message avisa).
+      2) mv "$_cl" "$_q/dead-$_orig" 2>/dev/null ;;
+      *) mv "$_cl" "$_q/$_orig" 2>/dev/null ;;
+    esac
   done
 }
 
@@ -234,15 +312,38 @@ ob_token_warning() {
 #    MENCIONARA el string (ej. `cat .../bin/onebrain-save` para inspeccionarlo) reseteaba el
 #    contador como si hubiera guardado de verdad. El uso real siempre lleva al menos un flag
 #    (`onebrain-save --type ...`), así que se ancla a "onebrain-save --".
+# 4) FALSO POSITIVO, el que hacía saltar el aviso cuando no correspondía: contar LÍNEAS
+#    type:user+role:user no es contar turnos del usuario. Un solo "hola" después de un /clear
+#    ya son TRES: el caveat que Claude Code inyecta (isMeta), el eco del /clear y el mensaje.
+#    Un prompt con dos imágenes adjuntas mete cuatro mensajes isMeta más. Resultado: "quedó
+#    trabajo sin guardar" en sesiones donde no se tocó un archivo — y el aviso que grita
+#    siempre deja de significar algo. Medido sobre 123 transcripts REALES de ~/.claude/
+#    projects: 10 falsos positivos (8%), cero falsos negativos.
+#    La señal correcta es `promptId`: Claude Code emite uno por TURNO real del usuario, y todos
+#    los mensajes derivados de ese turno (tool_results, adjuntos, inyecciones de skills) lo
+#    heredan. Se cuentan promptId ÚNICOS, salteando los isMeta (los que no los escribió una
+#    persona). Un transcript sin promptId (formato viejo, o sintético) cae al conteo por
+#    mensaje de antes, para no quedarse ciego ante un cambio de formato.
 ob_has_unsaved_work() {
   transcript="$1"
   [ -r "$transcript" ] || { printf '0'; return; }
   awk '
-    /"name":"[^"]*brain_save"/                                     { w=0; u=0; next }
-    /"name":"Bash"/ && /onebrain-save --/                          { w=0; u=0; next }
+    function turno(s) {
+      # "promptId":" son 12 caracteres; la comilla de cierre, 1 más.
+      if (match(s, /"promptId":"[^"]*"/)) return substr(s, RSTART + 12, RLENGTH - 13)
+      return ""
+    }
+    /"name":"[^"]*brain_save"/                                     { w=0; u=0; split("", vistos); next }
+    /"name":"Bash"/ && /onebrain-save --/                          { w=0; u=0; split("", vistos); next }
     /"name":"Edit"/ || /"name":"Write"/                            { w=1; next }
     /"name":"Bash"/ && (/git commit/ || /vercel --prod/ || /vercel deploy/) { w=1; next }
-    /"type":"user"/ && /"role":"user"/ && !/"tool_result"/         { u=u+1; next }
+    /"type":"user"/ && /"role":"user"/ && !/"tool_result"/ {
+      if ($0 ~ /"isMeta"[[:space:]]*:[[:space:]]*true/) next
+      p = turno($0)
+      if (p == "") { u = u + 1; next }
+      if (!(p in vistos)) { vistos[p] = 1; u = u + 1 }
+      next
+    }
     END { print (w==1 || u>=3) ? 1 : 0 }
   ' "$transcript"
 }

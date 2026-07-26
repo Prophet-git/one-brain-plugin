@@ -131,6 +131,28 @@ ob_doc_version() { # <root del plugin que se está ejecutando>
   [ -n "$ob_corre" ] && printf 'version|ok|plugin %s\n' "$ob_corre"
 }
 
+# ¿El contexto de arranque llegó ENTERO la última vez? Traduce la telemetría de entrega que
+# deja session-start.sh (ob_log_delivery). Existe porque la falla que más contexto se comió no
+# es visible desde afuera: cuando el bloque pasa de ~9 KB, Claude Code lo reemplaza por un
+# preview de 2 KB y nadie se entera — el 62% de las sesiones medidas. Sin esta línea, la única
+# forma de saberlo era adivinar.
+ob_doc_entrega() {
+  f="${ONE_BRAIN_DELIVERY_LOG:-$(ob_config_dir)/delivery.log}"
+  if [ ! -r "$f" ] || [ ! -s "$f" ]; then
+    printf 'entrega|aviso|todavía no hay registro de entregas del hook de arranque (%s)\n' "$f"; return
+  fi
+  ult=$(tail -n1 "$f")
+  ch=$(printf '%s' "$ult" | sed -n 's/.*chars=\([0-9]*\).*/\1/p')
+  rec=$(printf '%s' "$ult" | sed -n 's/.*recortes=\([^ ]*\).*/\1/p')
+  techo=$(printf '%s' "$ult" | sed -n 's/.*techo=\([^ ]*\).*/\1/p')
+  if [ "$techo" = "si" ] || { [ -n "$rec" ] && [ "$rec" != "ninguno" ]; }; then
+    printf 'entrega|aviso|el último arranque emitió %s caracteres y hubo recorte (bloques: %s, techo global: %s)\n' \
+      "$ch" "$rec" "$techo"
+  else
+    printf 'entrega|ok|el último arranque emitió %s caracteres, sin recortes\n' "$ch"
+  fi
+}
+
 # Corre todos los chequeos, en orden de "qué mirar primero".
 ob_doc_todos() {
   ob_doc_token
@@ -138,5 +160,6 @@ ob_doc_todos() {
   ob_doc_parser
   ob_doc_hooks_activos
   ob_doc_carpeta
+  ob_doc_entrega
   ob_doc_conexion
 }
