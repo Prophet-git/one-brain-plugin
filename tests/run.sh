@@ -807,6 +807,29 @@ assert_eq "T1.3: el brief con wikilinks en el cuerpo llega (precondición)" 0 "$
 printf '%s' "$OUT_T13W" | grep -qi 'quién lo escribió'
 assert_eq "T1.3: wikilinks en el cuerpo NO se confunden con firma de autor" 1 "$?"
 
+# --- Aviso de update: el server lo redacta, el hook lo MUESTRA ---
+# Hasta acá el aviso de "estás atrasado" vivía sólo en el banner del panel web, que la gente que
+# trabaja adentro de Claude Code no abre nunca. Caso real (27-jul): sesión corriendo la 0.1.271
+# con la 0.1.376 publicada, sin un solo aviso. El texto viene armado del server (campo `update`
+# de /api/context) para no meter comparación de semver en bash y para poder corregirlo sin que
+# nadie actualice nada; el hook solo tiene que no comérselo.
+printf '{"brief":"## Algo\\n- **Una decisión** (24/07/2026): cuerpo","update":"⚠️ One Brain: esta sesión está corriendo el plugin 0.1.271 y la última publicada es 0.1.376. Actualizalo con: claude plugin marketplace update prophet && claude plugin update one-brain@prophet — y después REINICIÁ Claude Code. Mostrale este aviso al usuario."}' > "$JSON_DIR/con-update.json"
+OUT_UPD=$(run_start_con_brief "$JSON_DIR/con-update.json")
+printf '%s' "$OUT_UPD" | grep -q 'Una decisión'
+assert_eq "update: el brief sigue llegando (precondición)" 0 "$?"
+printf '%s' "$OUT_UPD" | grep -q '0.1.376'
+assert_eq "update: el aviso del server llega a la salida del hook" 0 "$?"
+printf '%s' "$OUT_UPD" | grep -q 'claude plugin update one-brain@prophet'
+assert_eq "update: el comando llega ENTERO (con el && y la arroba)" 0 "$?"
+printf '%s' "$OUT_UPD" | grep -qi 'REINICI'
+assert_eq "update: dice que hay que reiniciar (sin eso, actualizar no cambia nada)" 0 "$?"
+
+# Un cerebro al día no manda el campo: ni una línea de ruido en el arranque.
+printf '{"brief":"## Algo\\n- **Una decisión** (24/07/2026): cuerpo"}' > "$JSON_DIR/sin-update.json"
+OUT_NOUPD=$(run_start_con_brief "$JSON_DIR/sin-update.json")
+printf '%s' "$OUT_NOUPD" | grep -qi 'claude plugin update'
+assert_eq "update: sin campo update, el arranque no menciona ningún update" 1 "$?"
+
 # Sin brief no hay nada que atribuir: la instrucción no debe aparecer (gasta presupuesto y le
 # pide al modelo que anuncie algo que no recibió).
 printf '{"brief":""}' > "$JSON_DIR/vacio.json"

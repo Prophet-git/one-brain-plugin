@@ -30,7 +30,7 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 |---|---|
 | `token` | Pedile el token a quien le dio acceso y corré `/one-brain:connect <token>` |
 | `curl` | Instalar curl (en Windows: usar Git Bash o WSL, que ya lo traen) |
-| `parser` | Actualizar el plugin: `/plugin marketplace update prophet` y `/plugin install one-brain@prophet`, después reiniciar Claude Code |
+| `parser` | Actualizar el plugin (ver "Cómo se actualiza", abajo) y reiniciar Claude Code |
 | `hooks` | Sacar `"disableAllHooks": true` de `~/.claude/settings.json` y reiniciar |
 | `carpeta` | Correr el instalador de la carpeta de trabajo, o abrir Claude Code desde la carpeta donde tenga su `CLAUDE.md` |
 | `entrega` en `aviso` | Nada se perdió: el material recortado se vuelve a pedir en el próximo arranque. Si pasa en todos los arranques, desde el panel se pueden apagar los bloques que no use (Digest del equipo, Resumen de sesión) para que el que sí le importa entre completo; si no, avisarle al operador |
@@ -39,6 +39,21 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 | `version` en `aviso` | Reiniciar Claude Code. Actualizó el plugin con la sesión abierta: quedó corriendo la versión vieja y los comandos nuevos no están disponibles. No hace falta volver a instalar nada |
 
 Si todo dio `ok`, decilo derecho y agregá que si igual no ve nada guardado, reinicie la sesión para que el conector tome el token.
+
+## Cómo se actualiza (decílo cuando haga falta actualizar, o cuando te lo pregunten)
+
+Se corre en la **terminal**, no adentro de Claude Code:
+
+    claude plugin marketplace update prophet
+    claude plugin update one-brain@prophet
+
+Y después **cerrar Claude Code y volver a abrirlo**. El reinicio es parte del arreglo, no una
+formalidad: mientras el proceso siga vivo sigue usando la copia vieja aunque el update haya
+bajado bien, y la persona concluye que actualizar no sirvió. `/clear` no alcanza — resetea la
+conversación, no el proceso.
+
+Para ver versiones: `claude plugin list` dice la instalada; el chequeo `version` de acá arriba
+dice la que está corriendo esta sesión.
 
 ## Reglas
 

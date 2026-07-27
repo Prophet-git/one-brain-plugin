@@ -87,6 +87,11 @@ if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   # pretty-print o comillas escapadas adentro del valor (mismo bug de fondo que ob_json_field
   # ya resuelve para el input del hook). ob_json_field recibe un STRING, no un archivo.
   BRIEF=$(ob_json_field brief "$(cat "$OB_TMP/context" 2>/dev/null)")
+  # Aviso de update, YA REDACTADO por el server (viene sólo si esta versión quedó atrasada).
+  # La comparación de versiones se hace allá a propósito: acá no hay con qué comparar semver de
+  # forma confiable, y el texto —incluido el comando— se puede corregir sin que nadie actualice
+  # el plugin, que es justo el problema que este aviso viene a resolver.
+  UPDATEWARN=$(ob_json_field update "$(cat "$OB_TMP/context" 2>/dev/null)")
   # De la síntesis sólo viene el día pendiente. El material se pide recién cuando la persona
   # dice que sí — con la orden concreta que va en el aviso de abajo.
   SYN_DAY=$(ob_json_field period_key "$(cat "$OB_TMP/synthesis" 2>/dev/null)")
@@ -202,6 +207,7 @@ ob_append_clipped() { ob_clip_block "$1" "$2" "$3"; ob_append "$OB_BLOCK"; }
 # --- Primero lo que no puede perderse: avisos operativos e instrucciones (todos cortos) ---
 ob_append "$TOKENWARN"                 # token vencido: sin esto nada funciona
 ob_append "$HOOKWARN"                  # captura rota en este entorno
+ob_append "$UPDATEWARN"                # plugin viejo: los arreglos viajan en la versión
 ob_append "$DEADMSG"                   # memorias que el server rechazó y nadie va a reintentar
 ob_append "$PENDMSG"                   # quedó trabajo sin guardar
 ob_append "$SYN"                       # una línea: hay día sin sintetizar

@@ -43,6 +43,24 @@ cargada y da "unknown skill".
 > En Windows: cerrar y reabrir la ventana es más confiable que `/reload-plugins`. El plugin
 > necesita un entorno POSIX (WSL o Git Bash) y `jq` instalado — ver "¿Algo no anda?".
 
+## Mantener el plugin al día
+
+Los arreglos del plugin (la captura automática, los chequeos, los comandos) viajan en la
+versión: una instalación vieja falla de maneras que ya están resueltas. Desde la **terminal**
+(no adentro de Claude Code):
+
+    claude plugin marketplace update prophet
+    claude plugin update one-brain@prophet
+
+Después **cerrá Claude Code y volvé a abrirlo**. Esto último no es opcional ni cosmético:
+mientras el proceso siga vivo sigue usando la copia vieja, aunque el update haya bajado bien.
+`/clear` NO alcanza — resetea la conversación, no el proceso.
+
+Para ver qué versión estás usando: `claude plugin list` (la instalada) y `/one-brain:doctor`
+(la que está corriendo esta sesión; si no coinciden, te lo dice).
+
+Desde el arranque, si tu versión quedó atrás, One Brain te avisa solo al empezar la sesión.
+
 ## Primer arranque
 
 Al reconectar, One Brain te saluda. Si tu cerebro es nuevo, corré:
