@@ -12,6 +12,33 @@ Cerrás el loop de memoria: convertís el trabajo de la sesión en entries de On
 - El usuario pide guardar explícitamente ("guardá esto").
 - Un aviso de `SessionStart` dice que la sesión anterior quedó con trabajo sin guardar: leé ese transcript (la ruta viene en el aviso) y aplicá lo mismo sobre él.
 
+## Qué merece entrar al cerebro (el criterio)
+
+Al cerebro entran **avances importantes, decisiones y avisos**. Nada más. Es memoria de
+empresa, no un registro de actividad: cada entrada que no aporta le agrega ruido a la
+próxima búsqueda de otra persona.
+
+**Guardá** cuando pasó algo que otro (o vos en dos semanas) necesita saber para no repetir
+trabajo ni decidir de nuevo:
+- un frente que avanzó de verdad: se terminó, se deployó, se entregó, se rompió;
+- una decisión y **su porqué** — sobre todo si reemplaza una anterior (usá `supersedes`);
+- algo que se aprendió y no está escrito en ningún lado: una restricción del cliente, una
+  limitación de una herramienta, por qué un camino no funcionó;
+- un aviso que cambia lo que hay que hacer: un bloqueante, un pendiente que quedó abierto.
+
+**No guardes** (por más que haya llevado tiempo):
+- verificaciones y chequeos de estado ("confirmé que la versión es la X", "los tests pasan");
+- exploración, lectura de código, respuestas a preguntas del usuario;
+- lo que ya queda registrado en otro lado: el detalle de un commit, el diff, la config;
+- pasos intermedios de algo que todavía no cerró — para eso está la skill `handoff`;
+- reformulaciones de una entrada que ya existe.
+
+Prueba rápida antes de proponer: **si dentro de dos semanas nadie la buscaría, no va.** Ante
+la duda, no la guardes y decilo: es más barato perder una nota menor que ensuciar la memoria.
+
+Y siempre, sin excepción: **proponer antes de escribir** (paso 3) y guardar sólo con el OK.
+Si el usuario descarta, no guardes ni insistas.
+
 ## Qué hacés
 0. **Chequeá el feature.** Corré en Bash: `onebrain-feature auto-capture`. Si sale con exit 1
    (el usuario desactivó "Captura automática" al cerrar sesión), NO hagas nada: terminá en silencio.
