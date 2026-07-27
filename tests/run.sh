@@ -404,6 +404,57 @@ assert_eq "headers: cae a ONE_BRAIN_TOKEN" '{"Authorization":"Bearer ob_desde_en
 
 assert_eq "headers: sin nada => objeto vacío" '{}' "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
 
+# Windows nativo real (no la ruta ya traducida por MSYS/Git Bash): USERPROFILE con backslashes.
+# Antes de normalizar, "$BASE/.config/..." mezclaba \ y / y podía no resolver el archivo.
+printf 'ob_token_normal' > "$H_HOME/.config/one-brain/token"
+H_WIN=$(printf '%s' "$H_HOME" | tr '/' '\\')
+assert_eq "headers: USERPROFILE con backslashes se normaliza" '{"Authorization":"Bearer ob_token_normal"}' \
+  "$(env -u HOME USERPROFILE="$H_WIN" sh "$HDR" 2>/dev/null)"
+
+# Ni HOME ni USERPROFILE: antes armaba una ruta rota ("/.config/...") y buscaba ahí en
+# silencio. Ahora avisa la razón concreta en vez de fallar mudo.
+SALIDA=$(env -u HOME -u USERPROFILE -u ONE_BRAIN_TOKEN_FILE -u ONE_BRAIN_TOKEN sh "$HDR" 2>&1 >/dev/null)
+printf '%s' "$SALIDA" | grep -q 'HOME ni USERPROFILE'
+assert_eq "headers: sin HOME ni USERPROFILE avisa la razón" 0 "$?"
+
+# Archivo sin permiso de lectura: antes cualquier motivo de "no pude leer el token" caía en el
+# mismo "sin token" genérico y no distinguía "no conectaste" de "hay un archivo pero no puedo
+# abrirlo". root puede leer cualquier archivo igual, así que el chequeo no aplica corriendo así.
+if [ "$(id -u)" != "0" ]; then
+  printf 'ob_token_normal' > "$H_HOME/.config/one-brain/token"
+  chmod 000 "$H_HOME/.config/one-brain/token"
+  SALIDA=$(env HOME="$H_HOME" sh "$HDR" 2>&1 >/dev/null)
+  printf '%s' "$SALIDA" | grep -q 'no se puede leer'
+  assert_eq "headers: archivo sin permiso de lectura avisa por qué" 0 "$?"
+  chmod 600 "$H_HOME/.config/one-brain/token"
+fi
+
+# Archivo vacío (0 bytes): distinto de "no existe" -- indica que algo escribió mal, no que
+# todavía no se conectó.
+: > "$H_HOME/.config/one-brain/token"
+SALIDA=$(env HOME="$H_HOME" sh "$HDR" 2>&1 >/dev/null)
+printf '%s' "$SALIDA" | grep -q 'vacío'
+assert_eq "headers: archivo de token vacío avisa por qué" 0 "$?"
+
+# UTF-16LE con BOM (FF FE) y un byte NUL intercalado entre cada caracter: así queda un archivo
+# de token si se crea con redirección de PowerShell 5.1 (Out-File es UTF-16 ahí por default).
+# Sin este caso, el token salía con basura y el server daba 401 sin ninguna pista de por qué.
+printf '\377\376o\000b\000_\000t\000o\000k\000e\000n\000_\000u\000t\000f\0001\0006\000' \
+  > "$H_HOME/.config/one-brain/token"
+assert_eq "headers: tolera UTF-16LE con BOM (NUL intercalado)" '{"Authorization":"Bearer ob_token_utf16"}' \
+  "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
+
+# Token corrupto que sobrevive a la limpieza (ej. una comilla en el medio): mandado tal cual
+# rompe el JSON del header en silencio. Se descarta con aviso en vez de eso.
+printf 'ob_token"raro' > "$H_HOME/.config/one-brain/token"
+assert_eq "headers: token con caracteres inválidos => objeto vacío" '{}' \
+  "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
+SALIDA=$(env HOME="$H_HOME" sh "$HDR" 2>&1 >/dev/null)
+printf '%s' "$SALIDA" | grep -q 'caracteres inválidos'
+assert_eq "headers: token corrupto avisa por qué" 0 "$?"
+
+rm -f "$H_HOME/.config/one-brain/token"
+
 # --- skill onboard: el onboarding tiene que dejar el cerebro CON ALGO ADENTRO (T1.1) ---
 # Causa raíz de que 3 de los 4 cerebros vivos estén en CERO memorias: la persona escribía su
 # constitución y quedaba con un cerebro vacío, así que su primera consulta no devolvía nada y

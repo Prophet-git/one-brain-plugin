@@ -1,27 +1,88 @@
 #!/bin/sh
 # headersHelper de One Brain: lee el token local y emite el header Authorization.
-# Corre fresco en cada conexión del MCP. Sin token -> objeto vacío (no rompe).
+# Corre fresco en cada conexión del MCP. Sin token -> objeto vacío (no rompe la conexión),
+# pero SIEMPRE explica por stderr POR QUÉ está vacío -- un helper mudo hace que la persona
+# termine en el login por email creyendo que su token no sirve, cuando el problema real es
+# otro (perfil no detectado, permisos, archivo vacío, o contenido corrupto).
 #
-# Robustez en Windows (Git Bash / WSL), donde este helper fallaba mudo y el usuario terminaba
-# creyendo que su token no servía:
-#  - HOME no siempre está definido: se cae a USERPROFILE.
-#  - Un token pegado desde un editor de Windows viene con CRLF y a veces con BOM UTF-8: los
-#    dos se limpian antes de armar el header (un BOM invisible hacía que el server devolviera
-#    401 sin explicación).
-#  - En máquinas donde no se puede escribir en el perfil, ONE_BRAIN_TOKEN sirve de alternativa.
+# Motivos concretos por los que este helper fallaba mudo en Windows (Git Bash / MSYS / WSL):
+#  - HOME no siempre está definido ahí: se cae a USERPROFILE.
+#  - USERPROFILE en Windows nativo trae backslashes ("C:\Users\nacho"): se normalizan a "/"
+#    antes de armar la ruta -- un separador mezclado puede no resolver en algunas shells.
+#  - Si ni HOME ni USERPROFILE están definidos, antes se armaba una ruta rota ("/.config/...")
+#    y se buscaba ahí en silencio; ahora se avisa en vez de buscar a ciegas.
+#  - Un token pegado/guardado desde Windows puede traer CRLF, BOM UTF-8 (EF BB BF) o, si el
+#    archivo se creó con redirección de PowerShell 5.1 (Out-File es UTF-16 ahí por default),
+#    BOM UTF-16 (FF FE / FE FF) con un byte NUL intercalado entre cada caracter. Los tres casos
+#    se limpian antes de armar el header -- un BOM o un NUL invisible hacía que el server
+#    devolviera 401 sin ninguna pista de por qué.
+#  - Si después de limpiar quedan caracteres que un token real nunca tiene (comillas, espacios,
+#    no-ASCII), se trata como corrupto: mejor fallar fuerte acá que mandar un Authorization roto
+#    o un JSON inválido que el cliente MCP no sepa parsear en silencio.
+#  - En máquinas donde no se puede escribir en el perfil, ONE_BRAIN_TOKEN sirve de alternativa
+#    (misma limpieza + validación que el archivo).
+#
+# Locale fijo a C: los bytes de un BOM UTF-16 (FF FE) no son una secuencia UTF-8 válida, y bajo
+# un locale UTF-8 (el default en casi toda instalación moderna) tanto sed como tr los rechazan
+# con "illegal byte sequence" en vez de simplemente borrarlos -- el helper volvía a fallar mudo,
+# ahora en el paso pensado para arreglar justo este caso. Con LC_ALL=C todo se trata como bytes
+# crudos, sin validación de codificación.
+export LC_ALL=C
+
 BASE="${HOME:-$USERPROFILE}"
-TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$BASE/.config/one-brain/token}"
+BASE=$(printf '%s' "$BASE" | tr '\\' '/')
+
+REASON=""
+TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-}"
+if [ -z "$TOKEN_FILE" ]; then
+  if [ -n "$BASE" ]; then
+    TOKEN_FILE="$BASE/.config/one-brain/token"
+  else
+    REASON="one-brain: no encontré la carpeta de tu usuario (ni HOME ni USERPROFILE están definidos). Seteá ONE_BRAIN_TOKEN o ONE_BRAIN_TOKEN_FILE a mano, o corré /one-brain:doctor para más detalle."
+  fi
+fi
+
+# Limpieza compartida para archivo y variable de entorno: espacios/CR/LF/tabs, NUL (aparece
+# cuando el archivo quedó en UTF-16 en vez de UTF-8/ASCII, con un byte NUL entre cada caracter
+# ASCII) y los bytes de los 3 BOM conocidos (UTF-8 EF BB BF, UTF-16LE FF FE, UTF-16BE FE FF).
+# No hace falta que el BOM esté justo al principio para borrarlo: un token real (ver la
+# validación de más abajo) nunca tiene esos bytes, así que sacarlos donde sea es seguro.
+ob_hdr_clean() {
+  tr -d ' \t\r\n\000\357\273\277\377\376'
+}
 
 TOKEN=""
-if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
-  # tr saca espacios/CR/LF; sed saca el BOM UTF-8 (EF BB BF) si el archivo empieza con él.
-  TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE" | sed "1s/^$(printf '\357\273\277')//")
+if [ -n "$TOKEN_FILE" ]; then
+  if [ ! -e "$TOKEN_FILE" ]; then
+    : # no existe: no es una falla nueva, es "todavía no conectaste" (mensaje final genérico)
+  elif [ ! -r "$TOKEN_FILE" ]; then
+    REASON="one-brain: $TOKEN_FILE existe pero no se puede leer (revisá permisos del archivo). Corré /one-brain:connect <token>."
+  elif [ ! -s "$TOKEN_FILE" ]; then
+    REASON="one-brain: $TOKEN_FILE está vacío. Corré /one-brain:connect <token>."
+  else
+    TOKEN=$(ob_hdr_clean < "$TOKEN_FILE")
+  fi
 fi
-[ -z "$TOKEN" ] && TOKEN=$(printf '%s' "${ONE_BRAIN_TOKEN:-}" | tr -d ' \t\r\n')
+
+if [ -z "$TOKEN" ] && [ -n "${ONE_BRAIN_TOKEN:-}" ]; then
+  TOKEN=$(printf '%s' "$ONE_BRAIN_TOKEN" | ob_hdr_clean)
+fi
+
+# Un token real es "ob_" + slug + "_" + hex: solo alfanumérico, "_" y "-" (ver
+# src/lib/provision.ts). Si después de limpiar queda otra cosa, el archivo o la variable están
+# corruptos -- se descarta con aviso en vez de mandar un header roto en silencio.
+case "$TOKEN" in
+  *[!A-Za-z0-9_-]*)
+    REASON="one-brain: el token tiene caracteres inválidos después de limpiarlo (¿archivo corrupto o mal codificado?). Corré /one-brain:connect <token>."
+    TOKEN=""
+    ;;
+esac
 
 if [ -n "$TOKEN" ]; then
   printf '{"Authorization":"Bearer %s"}' "$TOKEN"
 else
   printf '{}'
-  echo "one-brain: sin token. Corré /one-brain:connect <token>." >&2
+  # REASON ya trae su propia acción concreta cuando hay un motivo específico; si no hay
+  # ninguno (caso normal: todavía no conectó nada), el mensaje genérico de siempre.
+  echo "${REASON:-one-brain: sin token. Corré /one-brain:connect <token>.}" >&2
 fi
