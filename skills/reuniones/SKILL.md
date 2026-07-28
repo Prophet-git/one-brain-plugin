@@ -17,7 +17,7 @@ preguntas literales) + un resumen legible (lo que se ve en el panel) + un destil
 - El MCP oficial de Granola conectado (`granola` en `.mcp.json`). Si no responde, avisá y cortá.
 - El token de One Brain en `~/.config/one-brain/token` (lo usa el POST/GET). Sin token, avisá
   al usuario que corra `/one-brain:connect <token>` y cortá.
-- La URL del cerebro: `${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}`.
+- La URL del cerebro: `${ONE_BRAIN_URL:-https://onebrain.prophet.lat}`.
 
 ## Qué hacés
 0. **Chequeá el feature.** Corré en Bash: `onebrain-feature reuniones`. Si sale con exit 1

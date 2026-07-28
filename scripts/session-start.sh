@@ -35,7 +35,7 @@ feat_on() {
 }
 
 TOKEN_FILE="$HOME/.config/one-brain/token"
-URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; SAVEBIN=""; TOKENWARN=""; HAS_TOKEN=0
 if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
   HAS_TOKEN=1

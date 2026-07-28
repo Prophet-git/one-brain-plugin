@@ -17,7 +17,7 @@ pero no instalarlo tampoco rompe nada — el `/one-brain:doctor` lo trata como o
 
 Pegá esto en tu terminal (en **Windows**, en **Git Bash**), con el nombre de tu empresa:
 
-    curl -fsSL https://one-brain-kappa.vercel.app/setup.sh | bash -s -- "Tu Empresa"
+    curl -fsSL https://onebrain.prophet.lat/setup.sh | bash -s -- "Tu Empresa"
 
 Te crea la carpeta `Documents/one-brain` ya configurada (con las reglas para que el cerebro se
 llene solo) + un acceso directo **"One Brain"** en el escritorio. Desde ahí vas a abrir Claude

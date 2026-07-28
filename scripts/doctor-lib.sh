@@ -109,7 +109,7 @@ ob_doc_carpeta() {
 # ¿El cerebro responde con este token? Un tools/list contra el endpoint MCP.
 ob_doc_conexion() {
   f=$(ob_doc_token_file)
-  url="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+  url="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
   if [ ! -r "$f" ] || [ ! -s "$f" ]; then
     printf 'conexion|falla|sin token no se puede probar la conexión\n'; return
   fi

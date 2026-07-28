@@ -2,7 +2,7 @@
 # Manejo del token local de One Brain.
 DIR="$HOME/.config/one-brain"
 FILE="$DIR/token"
-URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 case "$1" in
   set)
     [ -n "$2" ] || { echo "uso: onebrain-token set <token>" >&2; exit 1; }

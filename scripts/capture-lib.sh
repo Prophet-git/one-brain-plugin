@@ -166,7 +166,7 @@ ob_try_save() {
   [ -r "$_tf" ] && _tok=$(tr -d ' \t\r\n' < "$_tf" 2>/dev/null)
   # sin token no es un payload malo: es una instalación a medio conectar. Reintentable.
   [ -n "$_tok" ] || return 1
-  _url="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+  _url="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
   _code=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' -X POST \
     -H "Authorization: Bearer $_tok" -H "content-type: application/json" \
     -d "$1" "$_url/api/entry" 2>/dev/null)

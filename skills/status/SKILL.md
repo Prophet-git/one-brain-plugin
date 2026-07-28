@@ -17,7 +17,7 @@ Reportás si esta máquina está conectada a One Brain y, si algo falla, el pró
    - "conexión OK" → el conector responde.
    - "falló (<código>)" → el token existe pero el server lo rechaza o no responde (ej. 401 = token inválido/revocado, 000 = sin red).
 
-3. **URL de destino.** Es `https://one-brain-kappa.vercel.app` por default, o el valor de `ONE_BRAIN_URL` si está seteada. Reportá a cuál apunta.
+3. **URL de destino.** Es `https://onebrain.prophet.lat` por default, o el valor de `ONE_BRAIN_URL` si está seteada. Reportá a cuál apunta.
 
 ## Reporte (claro y corto)
 

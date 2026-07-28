@@ -71,7 +71,7 @@ PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s%s%s}' \
 TOKEN_FILE="$(ob_config_dir)/token"
 TOKEN=""
 [ -r "$TOKEN_FILE" ] && TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE" 2>/dev/null)
-URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 [ -n "$TOKEN" ] || { echo "onebrain-save: sin token; encolo" >&2; ob_enqueue "$PAYLOAD"; exit 0; }
 
 RESP=$(curl -s --max-time 15 -w '\n%{http_code}' -X POST \

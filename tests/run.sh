@@ -1235,5 +1235,20 @@ case "$SALIDA" in
 esac
 rm -rf "$TMPHOME" "$TMPHOME2"
 
+# --- coherencia del dominio: .mcp.json y los scripts tienen que apuntar al MISMO lado ---
+# El 28-jul-2026 la conexion del MCP estaba escrita fija mientras los scripts leian
+# ONE_BRAIN_URL. Un cliente que seteara esa variable movia todo MENOS el MCP, o sea las tools:
+# quedaba hablando con dos dominios a la vez sin ninguna senal. Ahora los dos usan la misma
+# variable con el mismo default, y esto lo custodia.
+DEFAULT_MCP=$(sed -n 's|.*"url": "\${ONE_BRAIN_URL:-\([^}]*\)}/api/mcp".*|\1|p' "$ROOT/.mcp.json")
+case "$DEFAULT_MCP" in
+  https://*) PASS=$((PASS+1)) ;;
+  *) FAIL=$((FAIL+1)); printf 'FAIL: .mcp.json no usa ${ONE_BRAIN_URL:-...} en la url (leido=%s)\n' "$DEFAULT_MCP" ;;
+esac
+for f in scripts/session-start.sh scripts/capture-lib.sh scripts/doctor-lib.sh bin/onebrain-token bin/onebrain-save bin/onebrain-constitution; do
+  D=$(sed -n 's|.*ONE_BRAIN_URL:-\([^}]*\)}.*|\1|p' "$ROOT/$f" | head -1)
+  assert_eq "$f usa el mismo dominio por default que .mcp.json" "$DEFAULT_MCP" "$D"
+done
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

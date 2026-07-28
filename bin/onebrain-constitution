@@ -3,7 +3,7 @@
 # Uso: onebrain-constitution set <archivo.md>
 DIR="$HOME/.config/one-brain"
 FILE="$DIR/token"
-URL="${ONE_BRAIN_URL:-https://one-brain-kappa.vercel.app}"
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 
 # Serializa un archivo de texto a JSON {"content_md": <contenido>} escapando comillas/saltos.
 # No dependemos de un solo binario: jq no está casi nunca en Windows/Git Bash (donde SÍ suele

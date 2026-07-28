@@ -2,7 +2,7 @@
   "mcpServers": {
     "one-brain": {
       "type": "http",
-      "url": "https://one-brain-kappa.vercel.app/api/mcp",
+      "url": "${ONE_BRAIN_URL:-https://onebrain.prophet.lat}/api/mcp",
       "headersHelper": "${CLAUDE_PLUGIN_ROOT}/scripts/headers.sh"
     }
   }
