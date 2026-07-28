@@ -307,13 +307,58 @@ printf '{"model": "opus"}' > "$DOC_HOME/settings.json"
 assert_eq "doctor: hooks habilitados => ok" "ok" \
   "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
 
-# carpeta de trabajo sin CLAUDE.md
+# --- doctor / carpeta: el chequeo mira los DOS caminos de alta ---
+# El de la terminal deja el CLAUDE.md en la carpeta fija que arma setup.sh; el de la app deja
+# las mismas reglas en la carpeta que la persona eligió. Buscando sólo la fija, a esta segunda
+# le daba "no existe" para siempre, y la skill le indicaba correr el instalador — el `curl |
+# bash` que justamente no tiene dónde pegar.
+#
+# Todos estos casos corren desde un cwd AISLADO: ob_doc_carpeta ahora mira el directorio actual
+# y sus padres, así que sin aislar, el CLAUDE.md del repo (o el de cualquier ancestro de quien
+# corra los tests) decidiría el resultado.
+carpeta_desde() { # <cwd> [env extra...] -> imprime el estado del chequeo
+  _cwd=$1; shift
+  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta' )
+}
+NEUTRO=$(mktemp -d) # cwd sin ningún CLAUDE.md arriba
+# (mktemp -d cuelga de /var/folders en Mac y /tmp en Linux: ningún CLAUDE.md en el camino)
+
 mkdir -p "$DOC_HOME/one-brain"
 assert_eq "doctor: carpeta sin CLAUDE.md => aviso" "aviso" \
-  "$(estado "$(env ONE_BRAIN_DIR="$DOC_HOME/one-brain" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta')")"
+  "$(estado "$(carpeta_desde "$NEUTRO" ONE_BRAIN_DIR="$DOC_HOME/one-brain")")"
 printf '# reglas' > "$DOC_HOME/one-brain/CLAUDE.md"
 assert_eq "doctor: carpeta con CLAUDE.md => ok" "ok" \
-  "$(estado "$(env ONE_BRAIN_DIR="$DOC_HOME/one-brain" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta')")"
+  "$(estado "$(carpeta_desde "$NEUTRO" ONE_BRAIN_DIR="$DOC_HOME/one-brain")")"
+
+# CAMINO DE LA APP: la carpeta fija NO existe (nunca corrió el instalador), pero la persona
+# tiene sus reglas donde trabaja. Eso es una instalación sana, no un problema.
+APP_DIR=$(mktemp -d)
+printf '## One Brain\nLlamá `brain_context` al arrancar y proponé `brain_save` al cerrar.\n' \
+  > "$APP_DIR/CLAUDE.md"
+assert_eq "doctor: reglas en la carpeta donde trabaja (sin carpeta fija) => ok" "ok" \
+  "$(estado "$(carpeta_desde "$APP_DIR" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+printf '%s' "$(carpeta_desde "$APP_DIR" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | grep -q "$APP_DIR/CLAUDE.md"
+assert_eq "doctor: el detalle dice DÓNDE están las reglas que encontró" 0 "$?"
+
+# Vale también desde un subdirectorio: Claude Code carga el CLAUDE.md del directorio abierto y
+# los de sus padres, así que trabajar en una subcarpeta del espacio sigue estando configurado.
+mkdir -p "$APP_DIR/sub/proyecto"
+assert_eq "doctor: reglas en una carpeta padre => ok" "ok" \
+  "$(estado "$(carpeta_desde "$APP_DIR/sub/proyecto" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+
+# Un CLAUDE.md cualquiera NO alcanza: sin las tools nombradas, Claude no va a usar el cerebro.
+# (Es el falso positivo inverso — decirle "está todo bien" a quien no tiene nada configurado.)
+OTRO=$(mktemp -d)
+printf '# Mi proyecto\nUsá pnpm, no npm.\n' > "$OTRO/CLAUDE.md"
+assert_eq "doctor: CLAUDE.md sin reglas de One Brain no cuenta => aviso" "aviso" \
+  "$(estado "$(carpeta_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+# Y el aviso NO puede mandar a correr el instalador como si fuera la única salida.
+printf '%s' "$(carpeta_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | grep -qi 'curl'
+assert_eq "doctor: el aviso no le tira un curl a quien quizá no usa terminal" 1 "$?"
+
+# ob_doc_claudemd_cerca sale 1 (y no imprime) cuando no hay nada: el que llama distingue.
+( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
+assert_eq "ob_doc_claudemd_cerca: sin CLAUDE.md con reglas => exit 1" 1 "$?"
 
 # el parser del hook anda en este entorno (misma señal que ob_selftest)
 assert_eq "doctor: parser del hook => ok" "ok" "$(estado "$(ob_doc_parser)")"
@@ -508,6 +553,54 @@ for _chk in token curl parser hooks carpeta entrega conexion version; do
   grep -q "\*\*$_chk\*\*" "$DTK" 2>/dev/null
   assert_eq "la skill doctor documenta el chequeo '$_chk'" 0 "$?"
 done
+
+# El consejo del chequeo `carpeta` mandaba a "correr el instalador de la carpeta de trabajo",
+# que es el `curl … | bash` del camino de la terminal. A quien se dio de alta desde la app —el
+# que eligió explícitamente no tocar la consola— eso no es un arreglo: es una instrucción que
+# no puede seguir, encima para un problema que probablemente no tiene.
+sed -n '/^| `carpeta`/p' "$DTK" | grep -qi 'app'
+assert_eq "el consejo de 'carpeta' contempla a quien usa la app de escritorio" 0 "$?"
+sed -n '/^| `carpeta`/p' "$DTK" | grep -qi 'terminal'
+assert_eq "el consejo de 'carpeta' distingue el caso de la terminal" 0 "$?"
+
+# Actualizar el plugin: la instrucción de la terminal se queda (es la corta para quien ya vive
+# ahí), pero tiene que existir la alternativa de que lo corra Claude Code, que tiene Bash.
+grep -qi 'Bash' "$DTK"
+assert_eq "la skill doctor ofrece correr el update por Bash (para quien no usa terminal)" 0 "$?"
+grep -q 'claude plugin update one-brain@prophet' "$DTK"
+assert_eq "la skill doctor sigue dando el comando de terminal" 0 "$?"
+
+# --- ONBOARDING.md y README.md: el ORDEN de instalación ---
+# Los dos listaban marketplace add → install → connect seguidos, con el reinicio recién al
+# final. Sin reiniciar entre install y connect la skill `connect` todavía no está cargada y
+# Claude Code contesta "unknown skill": la persona cree que su token no sirve.
+orden_instalacion() { # <archivo> -> "ok" si install < reinicio < connect
+  _f=$1
+  _i=$(grep -n '/plugin install' "$_f" | head -n1 | cut -d: -f1)
+  _c=$(grep -n '/one-brain:connect' "$_f" | head -n1 | cut -d: -f1)
+  _r=$(grep -niE 'cerr[áa] claude code|volv[ée] a abrirlo' "$_f" | awk -F: -v i="${_i:-0}" '$1 > i {print $1; exit}')
+  if [ -n "$_i" ] && [ -n "$_c" ] && [ -n "$_r" ] && [ "$_i" -lt "$_r" ] && [ "$_r" -lt "$_c" ]; then
+    printf 'ok'
+  else
+    printf 'mal (install=%s reinicio=%s connect=%s)' "$_i" "$_r" "$_c"
+  fi
+}
+assert_eq "ONBOARDING.md: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/ONBOARDING.md")"
+assert_eq "README.md del plugin: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/README.md")"
+
+# --- ONBOARDING.md: jq ya NO es requisito ---
+# onebrain-constitution y capture-lib.sh prueban jq → python3 → perl, y el propio doctor lo
+# trata como opcional. Pedirlo como requisito frenaba altas por una dependencia que no existe.
+sed -n '/^## Requisitos/,/^## /p' "$ROOT/ONBOARDING.md" | grep -q 'jq` instalado'
+assert_eq "ONBOARDING.md ya no exige jq en los requisitos" 1 "$?"
+grep -q 'jq' "$ROOT/bin/onebrain-constitution" && grep -q 'python3' "$ROOT/bin/onebrain-constitution"
+assert_eq "…porque el bin de la constitución tiene fallback a python3" 0 "$?"
+
+# --- ONBOARDING.md: actualizar sin abrir una consola ---
+grep -qi 'Bash' "$ROOT/ONBOARDING.md"
+assert_eq "ONBOARDING.md ofrece pedirle el update a Claude Code (Bash)" 0 "$?"
+grep -q 'claude plugin update one-brain@prophet' "$ROOT/ONBOARDING.md"
+assert_eq "ONBOARDING.md conserva el comando de terminal" 0 "$?"
 
 # --- ob_enqueue: si el guardado falla, el entry queda en cola (no se pierde) ---
 export HOME="$(mktemp -d)"

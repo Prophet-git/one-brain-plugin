@@ -54,18 +54,56 @@ ob_doc_hooks_activos() {
   fi
 }
 
-# ¿Hay un CLAUDE.md en la carpeta de trabajo? Sin él, Claude no sabe que tiene que usar el
-# cerebro y el usuario cree que el producto "no hace nada".
+# ¿Un CLAUDE.md tiene adentro las reglas de One Brain? Se buscan las TOOLS, no el nombre del
+# producto: "One Brain" puede aparecer de pasada en cualquier archivo, pero un CLAUDE.md que
+# nombra brain_context y brain_save es el que efectivamente hace que Claude use el cerebro.
+# Las escriben los dos caminos de alta (el heredoc de public/setup.sh y REGLAS_ONE_BRAIN).
+ob_doc_reglas_en() { # <archivo>
+  [ -r "$1" ] || return 1
+  grep -q 'brain_context' "$1" 2>/dev/null || return 1
+  grep -q 'brain_save' "$1" 2>/dev/null || return 1
+  return 0
+}
+
+# El CLAUDE.md con reglas de One Brain más cercano al directorio donde se está trabajando,
+# subiendo por los padres. Claude Code carga el CLAUDE.md del directorio en el que se abrió y
+# también los de arriba, así que un cerebro configurado en la carpeta madre igual aplica.
+# Imprime la ruta y sale 0; si no hay ninguno, no imprime nada y sale 1.
+ob_doc_claudemd_cerca() { # [directorio inicial; default el actual]
+  # `pwd` (builtin) y no $PWD: el hook puede haber sido invocado con un PWD heredado que ya no
+  # es el directorio real, y acá el directorio real es justamente el dato.
+  ob_d=${1:-$(pwd)}
+  case "$ob_d" in /*) ;; *) ob_d=$(pwd) ;; esac
+  while :; do
+    if ob_doc_reglas_en "$ob_d/CLAUDE.md"; then printf '%s/CLAUDE.md' "$ob_d"; return 0; fi
+    [ "$ob_d" = "/" ] && break
+    ob_d=$(dirname "$ob_d")
+  done
+  return 1
+}
+
+# ¿Hay un CLAUDE.md con las reglas de One Brain donde esta persona trabaja? Sin él, Claude no
+# sabe que tiene que usar el cerebro y el usuario cree que el producto "no hace nada".
+#
+# El alta tiene DOS caminos y sólo uno usa la carpeta fija: quien se dio de alta por la terminal
+# corrió setup.sh, que crea `Documents/one-brain` y le escribe el CLAUDE.md adentro; quien se dio
+# de alta desde la app eligió SU carpeta y ahí Claude le escribió las mismas reglas. Mirando sólo
+# la carpeta fija, a esta segunda persona el chequeo le daba "no existe" para siempre — una
+# instalación perfectamente sana reportada como problema, y encima con un arreglo (`curl | bash`)
+# que justamente no puede correr. Por eso se mira PRIMERO dónde está parada la sesión.
 ob_doc_carpeta() {
   d="${ONE_BRAIN_DIR:-$HOME/Documents/one-brain}"
-  if [ ! -d "$d" ]; then
-    printf 'carpeta|aviso|no existe %s (si trabajás en otra carpeta, ignoralo)\n' "$d"; return
+  if aqui=$(ob_doc_claudemd_cerca); then
+    printf 'carpeta|ok|las reglas de One Brain están en %s\n' "$aqui"; return
   fi
   if [ -r "$d/CLAUDE.md" ]; then
-    printf 'carpeta|ok|%s con su CLAUDE.md\n' "$d"
-  else
-    printf 'carpeta|aviso|%s existe pero no tiene CLAUDE.md: Claude no va a saber usar el cerebro ahí\n' "$d"
+    printf 'carpeta|ok|%s con su CLAUDE.md\n' "$d"; return
   fi
+  if [ -d "$d" ]; then
+    printf 'carpeta|aviso|%s existe pero no tiene CLAUDE.md, y en esta carpeta tampoco hay reglas de One Brain\n' "$d"
+    return
+  fi
+  printf 'carpeta|aviso|no hay un CLAUDE.md con las reglas de One Brain en esta carpeta (ni en %s)\n' "$d"
 }
 
 # ¿El cerebro responde con este token? Un tools/list contra el endpoint MCP.

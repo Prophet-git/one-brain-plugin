@@ -4,9 +4,14 @@ One Brain es la memoria colectiva de tu equipo: guardás decisiones y avances, y
 Code arranca cada sesión sabiendo en qué está el equipo.
 
 ## Requisitos
-- Claude Code (terminal).
-- `jq` instalado (`brew install jq` en Mac). Se usa para guardar la constitución.
+- Claude Code (terminal). Si lo usás en la **app de escritorio**, tu alta se hace desde
+  la web (`/onboard`): ahí los pasos son los mismos salvo el primero, que no lleva `curl`.
+- Un entorno POSIX: Mac y Linux ya lo son; en **Windows**, Git Bash o WSL.
 - Tu **token** de acceso (te lo pasa quien te dio de alta; empieza con `ob_`).
+
+`jq` **no** hace falta: donde el plugin necesita leer o armar JSON prueba `jq`, después
+`python3` y después `perl`, y le alcanza con cualquiera de los tres. Instalarlo no molesta,
+pero no instalarlo tampoco rompe nada — el `/one-brain:doctor` lo trata como opcional.
 
 ## Armá tu espacio (una vez)
 
@@ -41,7 +46,7 @@ cargada y da "unknown skill".
 5. Confirmá con `/one-brain:status` que quedó conectado.
 
 > En Windows: cerrar y reabrir la ventana es más confiable que `/reload-plugins`. El plugin
-> necesita un entorno POSIX (WSL o Git Bash) y `jq` instalado — ver "¿Algo no anda?".
+> necesita un entorno POSIX (WSL o Git Bash) — ver "¿Algo no anda?".
 
 ## Mantener el plugin al día
 
@@ -51,6 +56,14 @@ versión: una instalación vieja falla de maneras que ya están resueltas. Desde
 
     claude plugin marketplace update prophet
     claude plugin update one-brain@prophet
+
+**¿No usás la terminal?** Si trabajás en la app de escritorio, no hace falta que abras una
+consola: pedíselo a Claude Code, que puede correrlo él. Escribile:
+
+    Corré esto en Bash, tal cual: claude plugin marketplace update prophet && claude plugin update one-brain@prophet
+
+Es el mismo comando; sólo cambia quién lo tipea. El reinicio de abajo sigue siendo tuyo:
+Claude no puede reiniciar el proceso que lo está ejecutando.
 
 Después **cerrá Claude Code y volvé a abrirlo**. Esto último no es opcional ni cosmético:
 mientras el proceso siga vivo sigue usando la copia vieja, aunque el update haya bajado bien.
