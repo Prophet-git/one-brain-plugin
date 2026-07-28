@@ -1204,5 +1204,36 @@ assert_eq "dead-letter: el aviso dice DÓNDE quedó el payload" 0 "$?"
 export HOME="$(mktemp -d)"
 assert_eq "dead-letter: sin dead-* no hay aviso" "" "$(ob_dead_message)"
 
+# --- onebrain-token set: avisa antes de pisar el token de otro cerebro ---
+# El token vive en UN archivo por máquina. Conectarse a un segundo cerebro pisaba el primero en
+# silencio: la persona quedaba afuera del cerebro anterior sin enterarse, y el síntoma aparecía
+# después, lejos de la causa.
+TMPHOME=$(mktemp -d)
+mkdir -p "$TMPHOME/.config/one-brain"
+printf 'ob_viejo_123' > "$TMPHOME/.config/one-brain/token"
+
+SALIDA=$(HOME="$TMPHOME" "$ROOT/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
+case "$SALIDA" in
+  *reemplaz*) PASS=$((PASS+1)) ;;
+  *) FAIL=$((FAIL+1)); printf 'FAIL: set sobre un token distinto no avisa que lo reemplaza (salida=%s)\n' "$SALIDA" ;;
+esac
+assert_eq "set igual pisa el token" "ob_nuevo_456" "$(cat "$TMPHOME/.config/one-brain/token")"
+
+# Reconectar al MISMO cerebro es rutina (se rota la llave, se reinstala): no hay nada que avisar.
+SALIDA=$(HOME="$TMPHOME" "$ROOT/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
+case "$SALIDA" in
+  *reemplaz*) FAIL=$((FAIL+1)); printf 'FAIL: avisa de reemplazo guardando el MISMO token (salida=%s)\n' "$SALIDA" ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+
+# Primera conexión de la máquina: tampoco hay nada que avisar.
+TMPHOME2=$(mktemp -d)
+SALIDA=$(HOME="$TMPHOME2" "$ROOT/bin/onebrain-token" set "ob_primero" 2>&1)
+case "$SALIDA" in
+  *reemplaz*) FAIL=$((FAIL+1)); printf 'FAIL: avisa de reemplazo en la primera conexión (salida=%s)\n' "$SALIDA" ;;
+  *) PASS=$((PASS+1)) ;;
+esac
+rm -rf "$TMPHOME" "$TMPHOME2"
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

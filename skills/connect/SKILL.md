@@ -8,7 +8,7 @@ description: Conectar esta máquina a One Brain guardando tu token de acceso. Se
 El usuario te pasó su token de One Brain en `$ARGUMENTS` (empieza con `ob_`).
 
 1. Si `$ARGUMENTS` está vacío, pedile el token (lo obtiene de su alta en One Brain).
-2. Guardá el token corriendo en Bash: `onebrain-token set "<token>"` (el ejecutable ya está en el PATH del plugin). Esto lo escribe en `~/.config/one-brain/token` con permisos 600. Nunca lo muestres en pantalla ni lo guardes en ningún otro lado.
+2. Guardá el token corriendo en Bash: `onebrain-token set "<token>"` (el ejecutable ya está en el PATH del plugin). Esto lo escribe en `~/.config/one-brain/token` con permisos 600. Nunca lo muestres en pantalla ni lo guardes en ningún otro lado. **Si el comando avisa que estás reemplazando otro cerebro, decíselo al usuario textual antes de seguir**: sólo se puede estar en un cerebro por máquina y sin el token viejo no vuelve al anterior.
 3. Verificá la conexión: `onebrain-token verify`. Si falló, decile que revise el token y cortá acá.
 4. **PASO OBLIGATORIO — no lo omitas ni lo pongas como opcional.** Sin este paso el conector NO toma el token y Claude Code le va a ofrecer un login por OAuth por error. Decile al usuario, textual:
 
