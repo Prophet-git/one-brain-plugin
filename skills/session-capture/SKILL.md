@@ -36,6 +36,27 @@ trabajo ni decidir de nuevo:
 Prueba rápida antes de proponer: **si dentro de dos semanas nadie la buscaría, no va.** Ante
 la duda, no la guardes y decilo: es más barato perder una nota menor que ensuciar la memoria.
 
+### Si no entra, son dos memorias (no una larga)
+
+El contenido topea en 20.000 caracteres, y el tope existe por la búsqueda: cada memoria se
+guarda con **un solo vector**, así que una nota larga que toca cinco temas produce un
+embedding que queda en el promedio de todos y no representa bien a ninguno — deja de aparecer
+justo cuando alguien la busca por uno de esos temas.
+
+Por eso, si lo que ibas a guardar no entra:
+
+- **Casi siempre son varias memorias distintas.** Una por frente, con su propio título. Se
+  buscan mejor y se leen mejor.
+- **Si es un documento largo de verdad** (un plan, un contrato, un informe), no va adentro del
+  cerebro: vive donde le corresponde —el repositorio, el drive— y la memoria guarda el puntero
+  más las decisiones que se tomaron. Un documento copiado al cerebro se desincroniza del
+  original en días.
+- **Recortar a lo bruto para que entre es la peor opción**: perdés justo el final, que suele
+  ser dónde está lo que falta hacer.
+
+En perspectiva: la mediana real es de unos 2.000 caracteres y sólo el 0,5% de las memorias
+toca el techo. Si estás cerca del límite, casi seguro no destilaste lo suficiente.
+
 Y siempre, sin excepción: **proponer antes de escribir** (paso 3) y guardar sólo con el OK.
 Si el usuario descarta, no guardes ni insistas.
 

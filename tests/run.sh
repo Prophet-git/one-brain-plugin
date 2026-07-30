@@ -951,6 +951,12 @@ run_limited() { # <segundos> <cmd...> -> imprime el exit code, o 124 si hubo que
 assert_eq "texto corto pasa entero"      "hola" "$(printf 'hola' | ob_clip 100)"
 assert_eq "recorta a N caracteres"       "abcde" "$(printf 'abcdefghij' | ob_clip 5 | head -n1)"
 assert_eq "avisa que recortó"            1 "$(printf 'abcdefghij' | ob_clip 5 | grep -c 'recortado')"
+# El aviso tiene que decir QUÉ HACER, no sólo que pasó. Un "[...recortado...]" a secas deja a la
+# sesión con medio handoff y sin manera de pedir el resto: pasó de verdad el 29-jul, y se
+# resolvió sólo porque a alguien se le ocurrió ir a buscarlo. El id viaja al principio del
+# bloque (ver src/lib/resume.ts), así que sobrevive al corte y esta línea lo puede referenciar.
+assert_eq "el aviso de recorte dice cómo recuperar lo que falta" 1 \
+  "$(printf 'abcdefghij' | ob_clip 5 | grep -c 'brain_get')"
 assert_eq "no parte los acentos"         "ñandúes" "$(printf 'ñandúes migrando' | ob_clip 7 | head -n1)"
 assert_eq "UTF-8 sigue válido tras recortar" 0 "$(printf 'áéíóú ñandúes' | ob_clip 8 | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8"); print(0)' 2>/dev/null || echo 1)"
 
@@ -1382,6 +1388,29 @@ for f in scripts/session-start.sh scripts/capture-lib.sh scripts/doctor-lib.sh b
   D=$(sed -n 's|.*ONE_BRAIN_URL:-\([^}]*\)}.*|\1|p' "$ROOT/$f" | head -1)
   assert_eq "$f usa el mismo dominio por default que .mcp.json" "$DEFAULT_MCP" "$D"
 done
+
+# --- doctor: un 403 de challenge NO es un token vencido -------------------------------------
+# El 29-jul-2026 la defensa automática de Vercel bloqueó el dominio propio y TODO devolvió 403.
+# El doctor lo tradujo como "el cerebro rechazó el token: pedí uno nuevo", mandando a rotar una
+# llave que estaba perfecta — y rotar, con el modelo de una llave por persona, rompe la máquina
+# donde esa persona ya estaba trabajando. El 403 del challenge se distingue por su cabecera.
+DOC_CH=$(mktemp -d); mkdir -p "$DOC_CH/.config/one-brain"
+printf 'ob_token_de_prueba' > "$DOC_CH/.config/one-brain/token"
+FCH=$(mktemp -d)
+cat > "$FCH/curl" <<'FAKECH'
+#!/bin/sh
+# Emula el desafío de Vercel: 403 + la cabecera que lo delata.
+for a in "$@"; do case "$a" in -D) _next=dump ;; *) if [ "$_next" = dump ]; then
+  printf 'HTTP/2 403\r\nserver: Vercel\r\nx-vercel-mitigated: challenge\r\n\r\n' > "$a"; _next=""; fi ;;
+esac; done
+printf '403'
+FAKECH
+chmod +x "$FCH/curl"
+SAL_CH=$(env HOME="$DOC_CH" PATH="$FCH:$PATH" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_conexion')
+printf '%s' "$SAL_CH" | grep -qi 'token'
+assert_eq "challenge: NO dice que el token esté mal" 1 "$?"
+printf '%s' "$SAL_CH" | grep -qi 'bloque\|challenge\|defensa\|protec'
+assert_eq "challenge: explica que el dominio está bloqueado" 0 "$?"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

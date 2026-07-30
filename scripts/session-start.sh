@@ -204,7 +204,11 @@ ob_clip_block() { # <texto> <max_chars> <nombre-del-bloque>
   # ob_clip marca el recorte en el propio texto: usar esa marca (y no una estimación de
   # tamaño) es medir lo que efectivamente pasó, no lo que suponemos que pasó.
   case "$OB_BLOCK" in
-    *'[...recortado...]'*) OB_CLIPPED="$OB_CLIPPED${OB_CLIPPED:+,}$3" ;;
+    # Se ancla al PREFIJO, no a la marca completa: el texto que sigue explica cómo recuperar
+    # lo recortado y se va a seguir puliendo. Con el literal entero, cambiarle una palabra a
+    # ese mensaje apagaba la telemetría en silencio — pasó al agregarle el aviso de brain_get,
+    # y sólo se notó porque un test lo cazó.
+    *'[...recortado'*) OB_CLIPPED="$OB_CLIPPED${OB_CLIPPED:+,}$3" ;;
   esac
 }
 ob_append_clipped() { ob_clip_block "$1" "$2" "$3"; ob_append "$OB_BLOCK"; }

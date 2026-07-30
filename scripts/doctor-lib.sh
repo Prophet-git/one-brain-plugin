@@ -115,11 +115,24 @@ ob_doc_conexion() {
   fi
   command -v curl >/dev/null 2>&1 || { printf 'conexion|falla|sin curl no se puede probar\n'; return; }
   tok=$(tr -d ' \t\r\n' < "$f")
+  # Se guardan las CABECERAS además del código: sin ellas, un 403 del token inválido y un 403
+  # del bloqueo del dominio se ven idénticos, y el diagnóstico mandaba a rotar la llave en los
+  # dos casos. Rotar una llave sana no es gratis: con una llave por persona, rompe la máquina
+  # donde ya estaba trabajando. Pasó el 29-jul-2026.
+  hdrs=$(mktemp 2>/dev/null || printf '/tmp/ob-doc-hdrs.%s' "$$")
   # Mismo endpoint que usa `onebrain-token verify`: /api/mcp (no /mcp).
-  code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 12 -X POST "$url/api/mcp" \
+  code=$(curl -s -o /dev/null -D "$hdrs" -w '%{http_code}' --max-time 12 -X POST "$url/api/mcp" \
     -H "Authorization: Bearer $tok" -H 'Content-Type: application/json' \
     -H 'Accept: application/json, text/event-stream' \
     -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' 2>/dev/null)
+  desafiado=0
+  grep -qi 'x-vercel-mitigated' "$hdrs" 2>/dev/null && desafiado=1
+  rm -f "$hdrs" 2>/dev/null
+  # El bloqueo del dominio se contesta ANTES que el código: es un 403 que no habla del token.
+  if [ "$desafiado" = "1" ]; then
+    printf 'conexion|falla|el dominio %s está bloqueado por la protección anti-bots de Vercel, no es tu llave (tu llave está bien, no la cambies). Suele soltarse solo en unos minutos; mientras tanto podés trabajar con ONE_BRAIN_URL=https://one-brain-kappa.vercel.app, y si no cede se apaga a mano en Vercel → proyecto one-brain → Firewall → Attack Challenge Mode\n' "$url"
+    return
+  fi
   case "$code" in
     200) printf 'conexion|ok|el cerebro responde en %s\n' "$url" ;;
     401|403) printf 'conexion|falla|el cerebro rechazó el token (HTTP %s): pedí uno nuevo y corré /one-brain:connect\n' "$code" ;;

@@ -16,17 +16,17 @@ ob_clip() {
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import sys
 n = int(sys.argv[1]); s = sys.stdin.read()
-sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado...]")' "$_obn" 2>/dev/null
+sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado — traelo entero con brain_get, el id está arriba]")' "$_obn" 2>/dev/null
     return
   fi
   if command -v perl >/dev/null 2>&1; then
     ONE_BRAIN_CLIP="$_obn" perl -Mutf8 -CSD -0777 -ne '
       my $n = $ENV{ONE_BRAIN_CLIP};
-      if (length($_) <= $n) { print $_ } else { my $t = substr($_, 0, $n); $t =~ s/\s+$//; print $t, "\n[...recortado...]" }' 2>/dev/null
+      if (length($_) <= $n) { print $_ } else { my $t = substr($_, 0, $n); $t =~ s/\s+$//; print $t, "\n[...recortado — traelo entero con brain_get, el id está arriba]" }' 2>/dev/null
     return
   fi
   awk -v n="$_obn" '{ buf = buf $0 "\n" }
-    END { if (length(buf) <= n) printf "%s", buf; else printf "%s\n[...recortado...]", substr(buf, 1, n) }' 2>/dev/null
+    END { if (length(buf) <= n) printf "%s", buf; else printf "%s\n[...recortado — traelo entero con brain_get, el id está arriba]", substr(buf, 1, n) }' 2>/dev/null
 }
 
 # ob_chars — cuenta los CARACTERES de stdin (no los bytes). Misma cascada y mismo motivo que
