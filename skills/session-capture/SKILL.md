@@ -48,7 +48,7 @@ Si el usuario descarta, no guardes ni insistas.
    - `title` (3-200), `content_md` (resumen autocontenido, 2-10 líneas)
    - `entities`: clientes/proyectos/personas/temas tocados
    - `level`: por defecto tu nivel; ofrecé cambiarlo si es sensible
-   - `supersedes`: si reemplaza una decisión anterior, su id
+   - `supersedes`: si reemplaza o CORRIGE una memoria anterior (de cualquier tipo, no sólo decisiones), su id
 3. **Proponé** el/los resúmenes al usuario ANTES de escribir: "voy a guardar esto: […] · ¿ok / editás / descartás?".
 4. Con el OK → guardá cada entry corriendo en Bash el comando **`onebrain-save`** (canal Bash,
    funciona aunque la tool MCP esté deferred/no cargada todavía en la sesión):
@@ -63,7 +63,7 @@ Si el usuario descarta, no guardes ni insistas.
      para el próximo arranque. Avisá al usuario que quedó pendiente, no perdido — no es una falla
      que tengas que resolver vos ahora.
    - Si la decisión que estás guardando **reemplaza a una anterior**, agregá
-     `--supersedes <uuid-de-la-vieja>` (el id lo sacás con `brain_search`): la vieja queda
+     `--supersedes <uuid-de-la-vieja>` (el id lo sacás con `brain_search`; sirve para cualquier tipo de memoria, no sólo decisiones — usalo también cuando lo guardado antes resultó estar equivocado): la vieja queda
      invalidada, no borrada. Sin esto el cerebro acumula decisiones contradictorias sin ninguna
      señal de cuál vale. Si el bin avisa que no encontró esa decisión, el id estaba mal: la
      memoria nueva se guardó igual, pero la vieja sigue vigente — buscá el id bueno y decilo.

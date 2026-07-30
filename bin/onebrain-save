@@ -1,7 +1,7 @@
 #!/bin/sh
 # onebrain-save: guarda una memoria por el canal Bash (inmune al deferred de la tool MCP).
 # Uso: onebrain-save --type avance --title "T" --content "C" [--entities "a,b"] [--area x]
-#                    [--supersedes <uuid-de-la-decision-vieja>]
+#                    [--supersedes <uuid-de-la-memoria-que-reemplaza>]
 # Éxito: imprime el entry_id. Fallo de red/server: encola para reintento (NO se pierde).
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/../scripts/capture-lib.sh"
@@ -20,7 +20,8 @@ while [ $# -gt 0 ]; do
     --content)  need_val "$1" $#; CONTENT=$2; shift 2 ;;
     --entities) need_val "$1" $#; ENTITIES=$2; shift 2 ;;
     --area)     need_val "$1" $#; AREA=$2; shift 2 ;;
-    # supersedes: el id de la decisión que ésta reemplaza. El server ya la invalida
+    # supersedes: el id de la memoria que ésta reemplaza o CORRIGE (de cualquier tipo, no
+    # sólo decisiones). El server ya la invalida
     # (invalidated_at/invalidated_by) desde siempre, pero sin este flag las skills no tenían
     # cómo pasarlo por el canal Bash: 0 de 529 entradas invalidadas en prod.
     --supersedes) need_val "$1" $#; SUPERSEDES=$2; shift 2 ;;
@@ -40,7 +41,7 @@ done
 # y ser MÁS estricto acá rechazaría ids que el server sí acepta. Esto ataja el error humano.
 if [ -n "$SUPERSEDES" ]; then
   printf '%s' "$SUPERSEDES" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || {
-    echo "onebrain-save: --supersedes espera el uuid de la decisión anterior (ej. 8f3d0a1e-2b4c-4d6e-9f01-23456789abcd); recibí '$SUPERSEDES'. Buscá el id con brain_search y reintentá." >&2
+    echo "onebrain-save: --supersedes espera el uuid de la memoria anterior (ej. 8f3d0a1e-2b4c-4d6e-9f01-23456789abcd); recibí '$SUPERSEDES'. Buscá el id con brain_search y reintentá." >&2
     exit 2
   }
 fi
