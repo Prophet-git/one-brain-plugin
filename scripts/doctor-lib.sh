@@ -191,6 +191,25 @@ ob_doc_entrega() {
   fi
 }
 
+# ¿Hay trabajo esperando ser destilado, y cuánto? El aviso de arranque decide sobre markers en
+# un directorio que nadie sabe que existe: cuando salía en todos los arranques, la única forma
+# de entender por qué era leerse el código del hook. Cuenta SÓLO los que van a avisar de
+# verdad (reason=edits), no las colas de cierre ni el cruft.
+ob_doc_captura() {
+  d=$(ob_pending_dir)
+  n=0
+  for f in "$d"/pending-*; do
+    [ -e "$f" ] || continue
+    [ "$(sed -n 's/^reason=//p' "$f" | head -n1)" = "edits" ] && n=$((n + 1))
+  done
+  if [ "$n" -eq 0 ]; then
+    printf 'captura|ok|no hay trabajo anterior esperando destilarse\n'
+  else
+    printf 'captura|aviso|%s sesión(es) anteriores con trabajo sin destilar (se avisa al arrancar, hasta %s veces cada una; markers en %s)\n' \
+      "$n" "${OB_PENDING_MAX_NAGS:-3}" "$d"
+  fi
+}
+
 # Corre todos los chequeos, en orden de "qué mirar primero".
 ob_doc_todos() {
   ob_doc_token
@@ -199,5 +218,6 @@ ob_doc_todos() {
   ob_doc_hooks_activos
   ob_doc_carpeta
   ob_doc_entrega
+  ob_doc_captura
   ob_doc_conexion
 }

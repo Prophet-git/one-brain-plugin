@@ -41,13 +41,16 @@ fi
 
 PDIR=$(ob_pending_dir)
 PEND="$PDIR/pending-$SESSION"
-UNSAVED=$(ob_has_unsaved_work "$TRANSCRIPT")
+# KIND ("edits" | "conversacion" | ""): el motivo queda ANOTADO en el marker. El aviso de
+# arranque lo necesita para no gritar por una sesión que guardó y después siguió charlando.
+KIND=$(ob_unsaved_kind "$TRANSCRIPT")
+[ -n "$KIND" ] && UNSAVED=1 || UNSAVED=0
 
 CNT_FILE="$PDIR/unsaved-count-$SESSION"
 mkdir -p "$PDIR" 2>/dev/null
 if [ "$UNSAVED" = "1" ]; then
   # marker con lo que el fallback necesita para destilar la sesión anterior
-  { printf 'transcript=%s\n' "$TRANSCRIPT"; printf 'cwd=%s\n' "$CWD"; } > "$PEND"
+  { printf 'transcript=%s\n' "$TRANSCRIPT"; printf 'cwd=%s\n' "$CWD"; printf 'reason=%s\n' "$KIND"; } > "$PEND"
 else
   # se guardó (o no hay trabajo): se reinicia el ciclo de recordatorio para la próxima vez.
   rm -f "$PEND" "$PDIR/reminded-$SESSION" "$CNT_FILE" 2>/dev/null

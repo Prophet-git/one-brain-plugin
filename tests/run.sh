@@ -82,7 +82,8 @@ assert_eq "mtime viejo => stale (ret 0)" 0 "$(ob_is_stale "$OLD"; echo $?)"
 
 # --- ob_pending_message / ob_resolve_pending: el rescate NO borra la marca hasta guardar ---
 export HOME="$(mktemp -d)"; PD=$(ob_pending_dir); mkdir -p "$PD"
-printf 'transcript=/x/t.jsonl\ncwd=/x\n' > "$PD/pending-SESSABC"
+TRABC="$HOME/abc.jsonl"; : > "$TRABC"; touch -t 202001010000 "$TRABC"
+printf 'transcript=%s\ncwd=/x\nreason=edits\n' "$TRABC" > "$PD/pending-SESSABC"
 ob_pending_message "SESS-ACTUAL" >/dev/null
 assert_eq "el aviso NO borra la marca" 1 "$([ -e "$PD/pending-SESSABC" ] && echo 1 || echo 0)"
 ob_resolve_pending "SESSABC"
@@ -106,6 +107,57 @@ printf 'transcript=/x/t.jsonl\n' > "$PD2/pending-SESSXYZ"
 env HOME="$HOME" "$RESB" SESSXYZ
 assert_eq "onebrain-resolve-pending borra la marca" 0 "$([ -e "$PD2/pending-SESSXYZ" ] && echo 1 || echo 0)"
 
+# --- ob_unsaved_kind: QUÉ quedó sin guardar, no sólo si quedó algo -------------------------
+# El aviso imperativo de arranque ("antes de seguir con lo que te pida el usuario") sólo se
+# justifica con trabajo REAL sin guardar. Una sesión que guardó y después siguió conversando
+# no perdió nada, y gritarle igual convierte el aviso en ruido de fondo permanente.
+#
+# Y hay un tercer estado, "cola": uno o dos edits DESPUÉS de haber guardado. Nadie guarda como
+# último acto de la sesión — se guarda y después se hace el commit, se toca un archivo, se
+# cierra. Contar eso como "trabajo sin guardar" es lo que hacía gritar al arranque incluso
+# después de un handoff bien hecho. Medido sobre los 9 transcripts reales de esta máquina, la
+# separación es nítida: las colas de cierre traen 0-1 edits post-guardado; las sesiones con
+# trabajo genuinamente sin registrar traen 13, 21, 32, 34, 40 y 43. El umbral (3) cae en ese
+# hueco con margen para dos edits de cierre.
+assert_eq "kind: trabajo sustancial sin guardar => edits" "edits"       "$(ob_unsaved_kind "$FIX/work-substantial-after-save.jsonl")"
+assert_eq "kind: 2 edits sin guardar => cola"            "cola"         "$(ob_unsaved_kind "$FIX/work-no-save.jsonl")"
+assert_eq "kind: 1 edit después de guardar => cola"      "cola"         "$(ob_unsaved_kind "$FIX/work-after-save.jsonl")"
+assert_eq "kind: sólo conversación => conversacion"      "conversacion" "$(ob_unsaved_kind "$FIX/conversational.jsonl")"
+assert_eq "kind: todo guardado => vacío"                 ""             "$(ob_unsaved_kind "$FIX/saved.jsonl")"
+assert_eq "kind: sin trabajo => vacío"                   ""             "$(ob_unsaved_kind "$FIX/no-work.jsonl")"
+assert_eq "kind: transcript inexistente => vacío"        ""             "$(ob_unsaved_kind "$FIX/does-not-exist.jsonl")"
+# ob_has_unsaved_work queda como wrapper: mismo contrato de siempre para el recordatorio suave.
+assert_eq "has_unsaved_work sigue siendo 1 con conversación" 1 "$(ob_has_unsaved_work "$FIX/conversational.jsonl")"
+
+# --- ob_gc_pending: ningún marker vive para siempre ----------------------------------------
+# Sin esto, cerrar Claude Code deja el marker huérfano PARA SIEMPRE: nada lo borra cuando la
+# sesión ya murió (el Stop hook necesita la sesión viva; ob_resolve_pending, que alguien lo
+# corra a mano). Se acumulaban ~3/día y el arranque siempre encontraba uno.
+export HOME="$(mktemp -d)"; PDG=$(ob_pending_dir); mkdir -p "$PDG"
+: > "$PDG/pending-VIEJO";  touch -t 202001010000 "$PDG/pending-VIEJO"
+: > "$PDG/reminded-VIEJO"; touch -t 202001010000 "$PDG/reminded-VIEJO"
+: > "$PDG/reuniones-reminded-20200101"; touch -t 202001010000 "$PDG/reuniones-reminded-20200101"
+: > "$PDG/pending-RECIENTE"
+ob_gc_pending
+assert_eq "gc: borra el pending vencido"        0 "$([ -e "$PDG/pending-VIEJO" ] && echo 1 || echo 0)"
+assert_eq "gc: borra el cruft vencido"          0 "$([ -e "$PDG/reminded-VIEJO" ] && echo 1 || echo 0)"
+assert_eq "gc: borra markers de reuniones viejos" 0 "$([ -e "$PDG/reuniones-reminded-20200101" ] && echo 1 || echo 0)"
+assert_eq "gc: NO toca el marker reciente"      1 "$([ -e "$PDG/pending-RECIENTE" ] && echo 1 || echo 0)"
+assert_eq "gc: sin carpeta no explota"          0 "$(HOME=/no/existe; ob_gc_pending; echo $?)"
+
+# --- ob_pending_message: el aviso deja de insistir ------------------------------------------
+# "Se repite en cada arranque hasta que se guarde" convierte un aviso urgente en ruido de
+# fondo, que es exactamente cómo se pierde. Tres arranques y se descarta, avisando que es la
+# última vez — no desaparece en silencio.
+export HOME="$(mktemp -d)"; PDN=$(ob_pending_dir); mkdir -p "$PDN"
+TRN="$HOME/nag.jsonl"; : > "$TRN"; touch -t 202001010000 "$TRN"
+printf 'transcript=%s\ncwd=/proj\nreason=edits\n' "$TRN" > "$PDN/pending-KNAG"
+assert_eq "nag 1: avisa"              1 "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "nag 2: sigue avisando"     1 "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "nag 3: avisa por última vez" 1 "$(ob_pending_message ACTUAL | grep -c 'última vez')"
+assert_eq "nag 4: ya no avisa"        0 "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "nag: y el marker quedó descartado" 0 "$([ -e "$PDN/pending-KNAG" ] && echo 1 || echo 0)"
+
 # --- stop-guard.sh: markers pending ---
 # NOTA: ob_pending_dir ya NO depende de CLAUDE_PLUGIN_DATA (ver arriba) — vive en
 # $HOME/.config/one-brain/pending. Estos tests aíslan con HOME temporal (no CLAUDE_PLUGIN_DATA).
@@ -128,6 +180,58 @@ TMP=$(mktemp -d)
 printf '{"transcript_path":"%s","session_id":"s4","cwd":"/tmp/proj"}' "$FIX/work-no-save.jsonl" | HOME="$TMP" sh "$ROOT/scripts/stop-guard.sh" >/dev/null 2>&1
 printf '{"transcript_path":"%s","session_id":"s4","cwd":"/tmp/proj"}' "$FIX/saved.jsonl"        | HOME="$TMP" sh "$ROOT/scripts/stop-guard.sh" >/dev/null 2>&1
 [ -e "$(pend_path "$TMP" s4)" ]; assert_eq "pending se limpia tras guardar" 1 "$?"
+
+# El marker guarda el MOTIVO: sin eso, el arranque no puede distinguir "perdí trabajo" de
+# "seguí conversando después de guardar", que es lo que hacía gritar el aviso siempre.
+T=$(run_stop "$FIX/work-substantial-after-save.jsonl" "s5")
+assert_eq "marker de edits anota reason=edits" "edits" \
+  "$(sed -n 's/^reason=//p' "$(pend_path "$T" s5)" 2>/dev/null)"
+T=$(run_stop "$FIX/work-no-save.jsonl" "s7")
+assert_eq "marker de cola de cierre anota reason=cola" "cola" \
+  "$(sed -n 's/^reason=//p' "$(pend_path "$T" s7)" 2>/dev/null)"
+# El recordatorio SUAVE de fin de turno sigue disparando con cualquiera de los tres: es barato
+# y estar dentro de la sesión es el mejor momento para guardar. El que se vuelve selectivo es
+# el grito de arranque.
+[ -e "$(pend_path "$T" s7)" ]; assert_eq "cola igual crea marker (el recordatorio suave sigue)" 0 "$?"
+
+# reason=cola NO justifica el aviso imperativo del arranque.
+export HOME="$(mktemp -d)"; PDC=$(ob_pending_dir); mkdir -p "$PDC"
+TRC="$HOME/cola.jsonl"; : > "$TRC"; touch -t 202001010000 "$TRC"
+printf 'transcript=%s\ncwd=/proj\nreason=cola\n' "$TRC" > "$PDC/pending-KCOLA"
+assert_eq "reason=cola NO avisa al arrancar" 0 "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "y el marker de cola se limpia" 0 "$([ -e "$PDC/pending-KCOLA" ] && echo 1 || echo 0)"
+T=$(run_stop "$FIX/conversational.jsonl" "s6")
+assert_eq "marker de sólo-charla anota reason=conversacion" "conversacion" \
+  "$(sed -n 's/^reason=//p' "$(pend_path "$T" s6)" 2>/dev/null)"
+
+# --- ob_pending_message: el grito de arranque SÓLO por trabajo real ------------------------
+export HOME="$(mktemp -d)"; PDK=$(ob_pending_dir); mkdir -p "$PDK"
+TRK="$HOME/viejo.jsonl"; : > "$TRK"; touch -t 202001010000 "$TRK"
+printf 'transcript=%s\ncwd=/proj\nreason=edits\n' "$TRK" > "$PDK/pending-KEDITS"
+assert_eq "reason=edits SÍ avisa" 1 \
+  "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+rm -f "$PDK/pending-KEDITS"
+printf 'transcript=%s\ncwd=/proj\nreason=conversacion\n' "$TRK" > "$PDK/pending-KCONV"
+assert_eq "reason=conversacion NO avisa" 0 \
+  "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "y el marker de sólo-charla se limpia solo" 0 \
+  "$([ -e "$PDK/pending-KCONV" ] && echo 1 || echo 0)"
+# Markers del formato viejo (sin reason): los escribió la versión con el bug, con el criterio
+# que medimos 89% falso positivo. Se descartan en vez de propagarse.
+printf 'transcript=%s\ncwd=/proj\n' "$TRK" > "$PDK/pending-KLEGACY"
+assert_eq "marker sin reason (formato viejo) NO avisa" 0 \
+  "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "y el marker viejo se descarta" 0 \
+  "$([ -e "$PDK/pending-KLEGACY" ] && echo 1 || echo 0)"
+
+# --- ob_pending_message: transcript que ya no existe ---------------------------------------
+# ob_is_stale trata "no existe" como inactivo, así que un transcript borrado por retención
+# seguía gritando — y mandaba a destilar un archivo que no está. No hay nada que rescatar.
+printf 'transcript=%s/fantasma.jsonl\ncwd=/proj\nreason=edits\n' "$HOME" > "$PDK/pending-KGHOST"
+assert_eq "transcript inexistente NO avisa" 0 \
+  "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
+assert_eq "y el marker huérfano se limpia" 0 \
+  "$([ -e "$PDK/pending-KGHOST" ] && echo 1 || echo 0)"
 
 # --- ob_should_renag wireado en stop-guard.sh: reinsiste cada 5 turnos con trabajo sin guardar ---
 run_stop_turn() { # <home> ; corre stop-guard.sh una vez sobre la misma sesión, con trabajo sin guardar
@@ -200,6 +304,18 @@ run_start() { # <session_id_actual> <home_dir>
   printf '{"session_id":"%s","source":"startup"}' "$1" \
     | HOME="$2" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null
 }
+# --- session-start.sh: el GC corre en el arranque (si no se wirea, no limpia nada) ---------
+# Se usan markers de reuniones a propósito: ob_pending_message ni los mira, así que si
+# desaparecen fue el GC y no otra limpieza — el test aísla lo que dice medir.
+TMPGC=$(mktemp -d); GCP="$TMPGC/.config/one-brain/pending"; mkdir -p "$GCP"
+: > "$GCP/reuniones-reminded-20200101"; touch -t 202001010000 "$GCP/reuniones-reminded-20200101"
+: > "$GCP/reuniones-reminded-hoy"
+run_start "current" "$TMPGC" >/dev/null
+assert_eq "arranque: caduca el marker vencido" 0 \
+  "$([ -e "$GCP/reuniones-reminded-20200101" ] && echo 1 || echo 0)"
+assert_eq "arranque: no toca el marker fresco" 1 \
+  "$([ -e "$GCP/reuniones-reminded-hoy" ] && echo 1 || echo 0)"
+
 # --- session-start.sh: inyecta el path del bin onebrain-save, pero SOLO con token (instalación
 # ya onboardeada) — REGRESIÓN de review: antes se emitía también SIN token, lo cual sugería
 # falsamente que guardar funciona (sin token, onebrain-save solo encola, nunca guarda de verdad).
@@ -220,7 +336,8 @@ assert_eq "SIN token y sin nada pendiente: session-start no emite additionalCont
 
 # con un pending de OTRA sesión => el output menciona la captura pendiente
 TMP=$(mktemp -d); mkdir -p "$TMP/.config/one-brain/pending"
-printf 'transcript=/tmp/old.jsonl\ncwd=/tmp/proj\n' > "$(pend_path "$TMP" old)"
+TROLD="$TMP/old.jsonl"; : > "$TROLD"; touch -t 202001010000 "$TROLD"
+printf 'transcript=%s\ncwd=/tmp/proj\nreason=edits\n' "$TROLD" > "$(pend_path "$TMP" old)"
 OUT=$(run_start "current" "$TMP")
 printf '%s' "$OUT" | grep -q 'session-capture'; assert_eq "avisa pending anterior" 0 "$?"
 [ -e "$(pend_path "$TMP" old)" ]; assert_eq "el aviso NO consume la marca (insiste hasta guardar)" 0 "$?"
@@ -1030,7 +1147,8 @@ FAKEALL
 chmod +x "$FBB/curl"
 HBB=$(mktemp -d); mkdir -p "$HBB/.config/one-brain/pending"
 printf 'ob_token_fake_de_test' > "$HBB/.config/one-brain/token"
-printf 'transcript=/tmp/vieja.jsonl\ncwd=/proj\n' > "$HBB/.config/one-brain/pending/pending-anterior"
+TRVIEJA="$HBB/vieja.jsonl"; : > "$TRVIEJA"; touch -t 202001010000 "$TRVIEJA"
+printf 'transcript=%s\ncwd=/proj\nreason=edits\n' "$TRVIEJA" > "$HBB/.config/one-brain/pending/pending-anterior"
 OUT_FULL=$(printf '{"session_id":"presu","source":"startup"}' \
   | HOME="$HBB" PATH="$FBB:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null)
 CHARS_FULL=$(printf '%s' "$OUT_FULL" | ob_chars)
@@ -1112,6 +1230,21 @@ SAL_E=$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'
 assert_eq "doctor: última entrega recortada => aviso" "aviso" "$(estado "$SAL_E")"
 printf '%s' "$(detalle "$SAL_E")" | grep -q 'resume,brief'
 assert_eq "doctor: el aviso nombra los bloques recortados" 0 "$?"
+
+# --- doctor: estado de la cola de captura --------------------------------------------------
+# El aviso de "quedó trabajo sin guardar" salía en TODOS los arranques y no había forma de ver
+# por qué: los markers viven en un directorio que nadie sabe que existe. Sin esta línea, la
+# única manera de responder "¿por qué me grita?" era leerse el código del hook.
+doc_cap() { env HOME="$1" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_captura'; }
+DOC_C=$(mktemp -d); mkdir -p "$DOC_C/.config/one-brain/pending"
+assert_eq "doctor: sin pendientes => ok" "ok" "$(estado "$(doc_cap "$DOC_C")")"
+TRD="$DOC_C/d.jsonl"; : > "$TRD"; touch -t 202001010000 "$TRD"
+printf 'transcript=%s\ncwd=/proj\nreason=edits\n' "$TRD" > "$DOC_C/.config/one-brain/pending/pending-D1"
+printf 'transcript=%s\ncwd=/proj\nreason=cola\n'  "$TRD" > "$DOC_C/.config/one-brain/pending/pending-D2"
+SAL_C=$(doc_cap "$DOC_C")
+assert_eq "doctor: con trabajo real pendiente => aviso" "aviso" "$(estado "$SAL_C")"
+printf '%s' "$(detalle "$SAL_C")" | grep -q '1'
+assert_eq "doctor: cuenta sólo los que van a avisar (no la cola de cierre)" 0 "$?"
 
 # --- Falso positivo de "trabajo sin guardar" -----------------------------------------------
 # Repro con formato REAL (sacado de un transcript de verdad, ~/.claude/projects): el usuario

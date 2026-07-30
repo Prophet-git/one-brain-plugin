@@ -147,6 +147,11 @@ fi
 # ese único aviso, el trabajo se perdía para siempre. Ahora la marca se borra SOLO cuando
 # session-capture confirma el guardado (ob_resolve_pending), y este aviso INSISTE en cada
 # arranque hasta que eso pase.
+#
+# Antes del aviso, la caducidad: markers de sesiones muertas hace rato que nadie va a rescatar.
+# Es lo único que corre sin depender de que la sesión dueña siga viva, así que si no está acá
+# el pending-dir crece sin techo y el arranque SIEMPRE encuentra de qué quejarse.
+ob_gc_pending
 PENDMSG=$(ob_pending_message "$SESSION")
 
 # Memorias que el server RECHAZÓ: salieron del ciclo de reintento (dead-letter) para no

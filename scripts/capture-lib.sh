@@ -261,11 +261,51 @@ ob_pending_message() {
   for _f in "$_pd"/pending-*; do
     [ -e "$_f" ] || continue
     _b=$(basename "$_f"); [ "$_b" = "pending-$_cur" ] && continue
+    _sid=${_b#pending-}
     _tp=$(sed -n 's/^transcript=//p' "$_f" | head -n1)
+    # El transcript se fue (retención de Claude Code, limpieza manual): no hay NADA que
+    # destilar. Antes igual gritaba —ob_is_stale trata "no existe" como inactivo— y mandaba
+    # a la skill contra un archivo fantasma.
+    [ -n "$_tp" ] && [ -e "$_tp" ] || { ob_resolve_pending "$_sid"; continue; }
+    # Sesión probablemente viva (otra ventana abierta ahora): ni avisar ni tocar sus markers.
     ob_is_stale "$_tp" || continue
-    printf 'IMPORTANTE — quedó trabajo SIN GUARDAR de una sesión anterior (transcript: %s). Antes de seguir con lo que te pida el usuario: activá la skill session-capture, destilá ese transcript y guardalo con onebrain-save. Este aviso se repite en cada arranque hasta que se guarde.' "$_tp"
+    # Sólo el trabajo REAL sostiene un aviso que ordena postergar lo que pidió el usuario.
+    # El resto (conversación posterior a un guardado, y los markers del formato viejo que no
+    # anotan motivo) se descarta ACÁ: cuando la sesión ya murió nada más los borra, y
+    # acumulados hacen que el aviso salga en todos los arranques para siempre.
+    [ "$(sed -n 's/^reason=//p' "$_f" | head -n1)" = "edits" ] || { ob_resolve_pending "$_sid"; continue; }
+    # TOPE DE INSISTENCIA. "Se repite en cada arranque hasta que se guarde" suena a red de
+    # seguridad y funciona como lo contrario: un aviso que sale siempre se lee como decorado
+    # y se ignora — incluso las veces que dice la verdad. Después de OB_PENDING_MAX_NAGS
+    # arranques sin rescate, el marker se descarta; la última vez lo dice, así que nada
+    # desaparece en silencio.
+    _ng=$(cat "$_pd/nagged-$_sid" 2>/dev/null); [ -n "$_ng" ] || _ng=0
+    _ng=$((_ng + 1))
+    [ "$_ng" -gt "${OB_PENDING_MAX_NAGS:-3}" ] && { ob_resolve_pending "$_sid"; continue; }
+    printf '%s' "$_ng" > "$_pd/nagged-$_sid" 2>/dev/null
+    printf 'IMPORTANTE — quedó trabajo SIN GUARDAR de una sesión anterior (transcript: %s). Antes de seguir con lo que te pida el usuario: activá la skill session-capture, destilá ese transcript y guardalo con onebrain-save.' "$_tp"
+    [ "$_ng" -ge "${OB_PENDING_MAX_NAGS:-3}" ] \
+      && printf ' Es la última vez que aviso por este transcript: si no se rescata ahora, la marca se descarta. Decíselo al usuario.'
     return 0
   done
+}
+
+# ob_gc_pending [dias]: caduca markers que ya no le sirven a nadie. SIN esto el pending-dir
+# sólo crece: cerrar Claude Code (o /clear, que abre session_id nueva) deja el marker huérfano
+# para siempre — el Stop hook necesita la sesión VIVA para limpiarlo y ob_resolve_pending
+# depende de que alguien lo corra a mano. Medido en una máquina real: 9 markers acumulados en
+# 3 días, y el arranque siempre encontraba uno del cual quejarse.
+ob_gc_pending() {
+  _days=${1:-${OB_PENDING_MAX_DAYS:-7}}
+  _pd=$(ob_pending_dir); [ -d "$_pd" ] || return 0
+  _now=$(date +%s 2>/dev/null) || return 0
+  _cut=$((_days * 86400))
+  for _g in "$_pd"/*; do
+    [ -f "$_g" ] || continue
+    _gm=$(stat -f %m "$_g" 2>/dev/null || stat -c %Y "$_g" 2>/dev/null) || continue
+    [ $((_now - _gm)) -gt "$_cut" ] && rm -f "$_g" 2>/dev/null
+  done
+  return 0
 }
 
 # ob_resolve_pending <session-id>: borra la marca de esa sesión. La skill session-capture la
@@ -275,7 +315,7 @@ ob_pending_message() {
 # ya cerrada, que nunca se limpiaba.
 ob_resolve_pending() {
   _pd=$(ob_pending_dir)
-  rm -f "$_pd/pending-$1" "$_pd/reminded-$1" "$_pd/unsaved-count-$1" 2>/dev/null
+  rm -f "$_pd/pending-$1" "$_pd/reminded-$1" "$_pd/unsaved-count-$1" "$_pd/nagged-$1" 2>/dev/null
 }
 
 # ob_should_renag <count>: 1 si toca reinsistir el recordatorio (múltiplo de 5, >0), 0 si no.
@@ -324,10 +364,28 @@ ob_token_warning() {
 #    heredan. Se cuentan promptId ÚNICOS, salteando los isMeta (los que no los escribió una
 #    persona). Un transcript sin promptId (formato viejo, o sintético) cae al conteo por
 #    mensaje de antes, para no quedarse ciego ante un cambio de formato.
+#
+# ob_unsaved_kind devuelve QUÉ quedó sin guardar; ob_has_unsaved_work es el wrapper booleano
+# de siempre (contrato intacto para el recordatorio suave de stop-guard.sh).
+#
+# 5) La distinción edits/conversacion existe porque los dos avisos tienen costos MUY distintos.
+#    El recordatorio de fin de turno es barato y puede errar por exceso. El de arranque ordena
+#    "antes de seguir con lo que te pida el usuario, destilá el transcript anterior": si sale
+#    cuando no corresponde, le roba el primer turno a otra tarea y —peor— enseña a ignorarlo.
+#    Y sale casi siempre, porque `u>=3` se prende con la conversación posterior al guardado:
+#    guardar el handoff y despedirse YA son turnos nuevos. Medido sobre los markers reales de
+#    esta máquina: 8 de 9 sesiones marcadas "sin guardar" tenían guardados confirmados en su
+#    propio transcript (una tenía 16). Sólo `w` (Edit/Write/commit/deploy) es trabajo que se
+#    pierde de verdad si nadie lo destila; la conversación posterior al último guardado, no.
 ob_has_unsaved_work() {
+  [ -n "$(ob_unsaved_kind "$1")" ] && printf 1 || printf 0
+}
+
+# ob_unsaved_kind <transcript>: "edits" | "conversacion" | "" (nada sin guardar).
+ob_unsaved_kind() {
   transcript="$1"
-  [ -r "$transcript" ] || { printf '0'; return; }
-  awk '
+  [ -r "$transcript" ] || { printf ''; return; }
+  awk -v min="${OB_UNSAVED_MIN_EDITS:-3}" '
     function turno(s) {
       # "promptId":" son 12 caracteres; la comilla de cierre, 1 más.
       if (match(s, /"promptId":"[^"]*"/)) return substr(s, RSTART + 12, RLENGTH - 13)
@@ -335,8 +393,8 @@ ob_has_unsaved_work() {
     }
     /"name":"[^"]*brain_save"/                                     { w=0; u=0; split("", vistos); next }
     /"name":"Bash"/ && /onebrain-save --/                          { w=0; u=0; split("", vistos); next }
-    /"name":"Edit"/ || /"name":"Write"/                            { w=1; next }
-    /"name":"Bash"/ && (/git commit/ || /vercel --prod/ || /vercel deploy/) { w=1; next }
+    /"name":"Edit"/ || /"name":"Write"/                            { w++; next }
+    /"name":"Bash"/ && (/git commit/ || /vercel --prod/ || /vercel deploy/) { w++; next }
     /"type":"user"/ && /"role":"user"/ && !/"tool_result"/ {
       if ($0 ~ /"isMeta"[[:space:]]*:[[:space:]]*true/) next
       p = turno($0)
@@ -344,6 +402,6 @@ ob_has_unsaved_work() {
       if (!(p in vistos)) { vistos[p] = 1; u = u + 1 }
       next
     }
-    END { print (w==1 || u>=3) ? 1 : 0 }
+    END { print (w>=min) ? "edits" : (w>0 ? "cola" : (u>=3 ? "conversacion" : "")) }
   ' "$transcript"
 }
