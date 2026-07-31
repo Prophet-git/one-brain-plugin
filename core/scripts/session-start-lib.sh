@@ -109,7 +109,7 @@ ob_session_start() {
 
   TOKEN_FILE="$HOME/.config/one-brain/token"
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; SAVEBIN=""; TOKENWARN=""; HAS_TOKEN=0
+  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; SAVEBIN=""; TOKENWARN=""; HAS_TOKEN=0
   if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
     HAS_TOKEN=1
     TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
@@ -154,6 +154,8 @@ ob_session_start() {
     # Menciones pendientes que te dejó un compañero (string ya formateado, o "" si no hay).
     # También tiene efecto: marca las resoluciones como vistas. Mismo criterio que arriba.
     ob_feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
+    # Material sin amasar que la propia persona subió (string ya formateado, o "" si no hay).
+    ob_feat_on material && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/material-pendiente" > "$OB_TMP/material" 2>/dev/null &
     # Features del usuario (toggles). Silencioso ante fallo → se conserva el features.json anterior.
     curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features"  > "$OB_TMP/features"  2>/dev/null &
     # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario conecta.
@@ -182,6 +184,7 @@ ob_session_start() {
     [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat ~/.config/one-brain/token)\" $URL/api/synthesis"
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
+    MATERIAL=$(ob_json_field material "$(cat "$OB_TMP/material" 2>/dev/null)")
 
     # First-run: parsear el saludo y apagar el marker para siempre (exista o no la respuesta).
     if [ "$DO_HELLO" = 1 ]; then
@@ -209,6 +212,7 @@ ob_session_start() {
   ob_feat_on daily-synthesis || SYN=""
   ob_feat_on session-resume || RESUME=""
   ob_feat_on menciones || MENTIONS=""
+  ob_feat_on material || MATERIAL=""
 
   # Aviso de reuniones sin sincronizar (feature 'reuniones', máx 1×/día). No llama a API/MCP:
   # solo invita a activar la skill. Idempotente por día vía marker en el pending-dir.
@@ -296,6 +300,7 @@ ob_session_start() {
   # --- Después el material, que es lo recortable ---
   ob_append_clipped "$RESUME" 2500 resume        # dónde quedaste
   ob_append_clipped "$MENTIONS" 800 menciones    # lo que te dejó un compañero
+  ob_append_clipped "$MATERIAL" 600 material     # documentos que subiste y no estudiaste
   ob_append_clipped "$HELLO" 1200 hello          # bienvenida (sólo la primera vez)
   if [ -n "$BRIEF" ]; then
     # El brief va ÚLTIMO: es el bloque más grande y el único que el techo puede morder sin costo
