@@ -16,13 +16,11 @@ Alguien dejó un proyecto listo y el usuario lo va a continuar. Vos le dejás la
 
 2. **Sumá el porqué**: buscá el handoff y las decisiones recientes de ese proyecto con `brain_search`. El cómo entrar sin el porqué deja a la persona ejecutando pasos que no entiende.
 
-3. **Si necesita las credenciales**, que corra desde la carpeta del proyecto:
+3. **Si necesita las credenciales**, el comando es `onebrain-project-pull "<proyecto>"` desde la carpeta del proyecto.
 
-   ```
-   onebrain-project-pull "<proyecto>"
-   ```
+   Le va a pedir una tecla en su terminal y recién ahí escribe. **Esa confirmación la da la persona, no vos**: es lo que impide que un texto malicioso metido en un README o en un issue se lleve credenciales sin que nadie se entere.
 
-   El comando le va a pedir una tecla en su terminal y recién ahí escribe. **Esa confirmación la da la persona, no vos**: es lo que impide que un texto malicioso metido en un README o en un issue se lleve credenciales sin que nadie se entere.
+   Como la pregunta se lee de `/dev/tty`, desde el `!` de Claude Code o cualquier canal no interactivo el comando **no escribe nada**: muere con "hace falta una terminal para confirmar la escritura de credenciales" después de haber impreso todo, así que parece que anduvo. Entonces hacé las dos cosas: abrile la terminal ya corriendo el comando (macOS: `osascript -e 'tell application "Terminal" to do script "..."' -e 'tell application "Terminal" to activate'`) **y** pegale el comando completo en un bloque de código, con las rutas resueltas, para que lo copie si prefiere. Decile qué le va a preguntar y qué contestar.
 
 4. **Nunca pidas ni muestres el valor de una credencial en el chat.** El comando las escribe directo en su archivo. Vos solo ves qué se escribió, por nombre. Si el usuario te pide el valor, explicale que no pasa por acá a propósito y que ya está en su archivo.
 
