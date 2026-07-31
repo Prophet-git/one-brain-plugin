@@ -1,0 +1,177 @@
+#!/usr/bin/env node
+// onebrain-project-pull — retomar un proyecto: trae el contexto y ESCRIBE las credenciales
+// en su lugar, sin que su valor pase nunca por la conversación.
+//
+// Uso: onebrain-project-pull <proyecto> [--dir <ruta>] [--solo-contexto]
+//
+// QUÉ IMPRIME (esto sí lo lee el modelo): el perfil, y qué credenciales escribió, por NOMBRE.
+// QUÉ NUNCA IMPRIME: el valor de una credencial. Ese viaja del server al disco y nada más.
+//
+// POR QUÉ EN NODE Y NO EN SH, como los otros bins: acá hay que parsear un JSON con arrays
+// anidados y reescribir archivos de entorno ajenos sin romperlos. Hacerlo con sed/awk es
+// exactamente el tipo de cosa que funciona en las pruebas y le come el .env a un compañero.
+
+import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join, dirname, resolve } from "node:path";
+import { mergeEnv, diasDesde, estaIgnorado, mismoRepo } from "../scripts/project-lib.mjs";
+import { preguntar, esSi } from "../scripts/tty.mjs";
+
+const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
+
+function salir(msg, codigo = 1) {
+  console.error(msg);
+  process.exit(codigo);
+}
+
+function token() {
+  const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
+  if (!existsSync(f)) salir("one-brain: sin token. Corré /one-brain:connect <token>.");
+  return readFileSync(f, "utf8").trim();
+}
+
+/** La confirmación se le pide a la terminal, no a la entrada estándar. Es la defensa central
+ *  del diseño: el modelo puede ejecutar este comando, pero no puede apretar una tecla en la
+ *  terminal de la persona. Sin terminal no se escribe nada — falla cerrado, porque un
+ *  "asumamos que sí" acá convierte la caja fuerte en un repartidor de credenciales a pedido. */
+function confirmarEnTerminal(pregunta) {
+  const r = preguntar(pregunta);
+  if (r === null) {
+    salir("one-brain: hace falta una terminal para confirmar la escritura de credenciales.\n" +
+      "Corré el comando vos mismo en tu terminal (no dentro de un pipe ni de un script).");
+  }
+  return esSi(r);
+}
+
+function repoLocal(dir) {
+  try {
+    return execFileSync("git", ["-C", dir, "remote", "get-url", "origin"], {
+      encoding: "utf8", stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return null;
+  }
+}
+
+async function pedir(ruta, opciones) {
+  const res = await fetch(`${URL_BASE}${ruta}`, {
+    ...opciones,
+    headers: { authorization: `Bearer ${token()}`, "content-type": "application/json", ...(opciones?.headers || {}) },
+  });
+  const cuerpo = await res.json().catch(() => ({}));
+  if (!res.ok) salir(`one-brain: ${cuerpo.error || `el server respondió ${res.status}`}`);
+  return cuerpo;
+}
+
+const args = process.argv.slice(2);
+const proyecto = args.find((a) => !a.startsWith("--"));
+if (!proyecto) salir("uso: onebrain-project-pull <proyecto> [--dir <ruta>] [--solo-contexto]");
+const dirIdx = args.indexOf("--dir");
+const dir = resolve(dirIdx >= 0 ? args[dirIdx + 1] : process.cwd());
+const soloContexto = args.includes("--solo-contexto");
+
+const datos = await pedir(`/api/project?project=${encodeURIComponent(proyecto)}`, { method: "GET" });
+const { project, profile, secretos } = datos;
+
+console.log(`\n  ${project.name}`);
+// `descripcion` va arriba de todo, antes del repo: quien retoma necesita saber qué es esto
+// antes que dónde está.
+if (profile?.descripcion) console.log(`  Qué hace ..... ${profile.descripcion}`);
+if (profile?.repo_url) console.log(`  Repo ......... ${profile.repo_url}${profile.default_branch ? ` (${profile.default_branch})` : ""}`);
+if (profile?.prod_url) console.log(`  Producción ... ${profile.prod_url}`);
+if (profile?.setup_md) console.log(`  Se levanta ... ${profile.setup_md}`);
+if (profile?.deploy_md) console.log(`  Se deploya ... ${profile.deploy_md}`);
+for (const s of profile?.services || []) {
+  console.log(`  Servicio ..... ${s.nombre}${s.rol ? ` (${s.rol})` : ""}`);
+}
+if (profile?.roadmap_md) {
+  const fecha = profile.roadmap_updated_at ? ` (actualizado ${profile.roadmap_updated_at.slice(0, 10)})` : "";
+  console.log(`\n  Roadmap${fecha}:`);
+  for (const l of profile.roadmap_md.split("\n")) console.log(`    ${l}`);
+}
+if (!profile) console.log("  (todavía no cargaron el perfil técnico de este proyecto)");
+
+if (!secretos?.length) {
+  console.log("\n  Sin credenciales guardadas.\n");
+  process.exit(0);
+}
+
+console.log(`\n  Credenciales guardadas (${secretos.length}):`);
+for (const s of secretos) {
+  const dias = diasDesde(s.updated_at);
+  const edad = dias === null ? "" : dias > 90 ? `  ← cargada hace ${dias} días, puede estar vencida` : "";
+  const via = s.referencia_externa ? ` [bóveda externa: ${s.referencia_externa}]` : "";
+  console.log(`    ${s.nombre} → ${s.destino}${via}${edad}`);
+}
+
+if (soloContexto) {
+  console.log("\n  (--solo-contexto: no se escribió nada)\n");
+  process.exit(0);
+}
+
+// Defensa: el repo donde estoy parado tiene que ser el del proyecto que pido. Si no coincide,
+// una confirmación aparte y explícita — es el caso de una inyección en el repo de un cliente
+// pidiendo las credenciales de otro.
+const local = repoLocal(dir);
+const coincide = mismoRepo(profile?.repo_url, local);
+if (coincide === false) {
+  console.log(`\n  ¡OJO! Estás parado en un repo distinto al del proyecto.`);
+  console.log(`    acá:       ${local}`);
+  console.log(`    proyecto:  ${profile.repo_url}`);
+  if (!confirmarEnTerminal("  ¿Escribo igual las credenciales de este proyecto acá?")) {
+    salir("\n  Cancelado. No se escribió nada.\n", 0);
+  }
+}
+
+if (!confirmarEnTerminal(`\n  ¿Escribo estas ${secretos.length} credenciales en ${dir}?`)) {
+  salir("\n  Cancelado. No se escribió nada.\n", 0);
+}
+
+const { secretos: valores } = await pedir("/api/project/materialize", {
+  method: "POST",
+  body: JSON.stringify({ project: proyecto, origen: local || dir }),
+});
+
+const gitignore = existsSync(join(dir, ".gitignore")) ? readFileSync(join(dir, ".gitignore"), "utf8") : "";
+const porArchivo = new Map();
+const externas = [];
+
+for (const s of valores) {
+  if (s.valor === null) { externas.push(s); continue; }
+  if (s.destino_tipo === "env") {
+    const ruta = join(dir, s.destino);
+    if (!porArchivo.has(ruta)) porArchivo.set(ruta, {});
+    porArchivo.get(ruta)[s.nombre] = s.valor;
+  } else {
+    const ruta = s.destino.startsWith("~") ? join(homedir(), s.destino.slice(1)) : resolve(dir, s.destino);
+    mkdirSync(dirname(ruta), { recursive: true });
+    writeFileSync(ruta, s.valor.endsWith("\n") ? s.valor : `${s.valor}\n`, { mode: 0o600 });
+    // `mode` solo aplica al CREAR: si el archivo ya existía queda con los permisos viejos, y
+    // un archivo de credenciales legible por toda la máquina no es un detalle.
+    chmodSync(ruta, 0o600);
+    console.log(`  escrito  ${s.destino}  (${s.nombre})`);
+  }
+}
+
+for (const [ruta, vars] of porArchivo) {
+  const actual = existsSync(ruta) ? readFileSync(ruta, "utf8") : "";
+  const r = mergeEnv(actual, vars);
+  writeFileSync(ruta, r.contenido, { mode: 0o600 });
+  chmodSync(ruta, 0o600); // ver arriba: el modo del writeFileSync no toca un archivo existente
+  const relativo = ruta.replace(`${dir}/`, "");
+  const partes = [];
+  if (r.agregadas.length) partes.push(`${r.agregadas.length} agregada(s)`);
+  if (r.reemplazadas.length) partes.push(`${r.reemplazadas.length} actualizada(s)`);
+  if (r.sinCambio.length) partes.push(`${r.sinCambio.length} ya estaba(n)`);
+  console.log(`  escrito  ${relativo}  (${partes.join(", ")})`);
+  if (!estaIgnorado(gitignore, relativo)) {
+    console.log(`  ¡OJO! ${relativo} NO figura en .gitignore: agregalo antes de commitear.`);
+  }
+}
+
+for (const s of externas) {
+  console.log(`  pendiente ${s.nombre}: vive en una bóveda externa (${s.referencia_externa}), traela con tu gestor.`);
+}
+
+console.log("\n  Listo. El valor de las credenciales no pasó por la conversación.\n");

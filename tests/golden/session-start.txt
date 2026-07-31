@@ -1,0 +1,17 @@
+One Brain: el día 2026-07-30 quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H "Authorization: Bearer $(cat ~/.config/one-brain/token)" <URL>/api/synthesis
+
+Puede que tengas reuniones nuevas de Granola sin sincronizar al cerebro. Si querés, activá la skill reuniones: trae las nuevas, las guarda y te ofrece destilar decisiones/avances.
+
+Para guardar en One Brain usá el comando: <REPO>/plugin/scripts/../bin/onebrain-save (canal Bash, no depende de la tool MCP).
+
+Quedaste a mitad del wizard de alta.
+
+Fran te mencionó en una nota de ayer.
+
+Bienvenido a One Brain.
+
+Antes de responder lo primero que te pida el usuario, escribí UNA sola línea que empiece con "One Brain:" diciendo qué te trajo el cerebro del equipo y quién lo escribió: el nombre de la persona (en el material figura entre corchetes dobles, ej. [[Fran]]; escribilo SIN los corchetes) y la fecha que está al lado. Ejemplo: "One Brain: traje la decisión de pasar la carga a Postgres, la escribió Fran el 24/07/2026". Una línea sola, y seguí con lo que te pidieron. No inventes autor ni fecha: si algo no los trae, no se lo atribuyas a nadie.
+
+# One Brain — contexto del equipo
+## Decisiones vigentes
+- **Pasar la carga a Postgres** ([[Fran]] · 24/07/2026): porque el Excel no aguanta.

@@ -111,3 +111,66 @@ export function mismoRepo(repoPerfil, repoLocal) {
   if (!a || !b) return null; // no se puede saber
   return a === b;
 }
+
+/** Lee las opciones de onebrain-project-push.
+ *
+ *  Existe como función pura, y con tests, porque la versión anterior parseaba a mano con un
+ *  `args.find` que se confundía con el valor de la opción anterior — y ahora hay tres opciones
+ *  más donde equivocarse. Que el nombre del proyecto salga mal no es cosmético: sube el perfil
+ *  y las credenciales al proyecto equivocado. */
+export function parsearArgsPush(argv) {
+  const conValor = { "--dir": "dir", "--descripcion": "descripcion", "--prod": "prod", "--roadmap-file": "roadmapFile" };
+  const opciones = { dir: null, descripcion: null, prod: null, roadmapFile: null, env: [], excluir: [] };
+  const sueltos = [];
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (conValor[a]) { opciones[conValor[a]] = argv[++i] ?? null; continue; }
+    if (a === "--env") { const v = argv[++i]; if (v) opciones.env.push(v); continue; }
+    if (a === "--excluir") {
+      const v = argv[++i] ?? "";
+      opciones.excluir.push(...v.split(",").map((s) => s.trim()).filter(Boolean));
+      continue;
+    }
+    // Una opción que no conocemos se ignora en vez de tomarse como el nombre del proyecto.
+    if (a.startsWith("--")) continue;
+    sueltos.push(a);
+  }
+  return { proyecto: sueltos[0] ?? null, ...opciones };
+}
+
+/** El primer párrafo de prosa del README, para PROPONER la descripción del proyecto.
+ *
+ *  Es una propuesta, no un dato: la persona la ve en el resumen antes de confirmar la subida y
+ *  la corrige con --descripcion. Se saltean el título, las insignias, el HTML y las citas —
+ *  lo que queda es la frase que alguien ya escribió explicando qué es esto, que casi siempre
+ *  es mejor que la que se escribiría a las apuradas al final del día. */
+export function descripcionDeReadme(contenido, tope = 300) {
+  const parrafo = [];
+  for (const cruda of (contenido || "").split("\n")) {
+    const l = cruda.trim();
+    if (!l) { if (parrafo.length) break; continue; }
+    if (/^[#<>[!]/.test(l)) { if (parrafo.length) break; continue; }
+    parrafo.push(l);
+  }
+  const texto = parrafo.join(" ").replace(/\s+/g, " ").trim();
+  if (!texto) return null;
+  return texto.length > tope ? texto.slice(0, tope).trimEnd() + "…" : texto;
+}
+
+/** Los dos campos de descripción que viajan al server, separando el DATO de la PROPUESTA.
+ *
+ *  Antes viajaba uno solo: `descripcion: opts.descripcion || descripcionPropuesta(dir)`. Como la
+ *  propuesta del README siempre sale con valor, la corrida rutinaria del push —la de "actualizá
+ *  el repo", sin --descripcion— le pisaba a la descripción escrita a mano la primera línea del
+ *  README. La descripción es el campo titular de la tab Proyectos: es lo único que le permite a
+ *  alguien que no programa saber qué es cada proyecto.
+ *
+ *  Separados, el server sabe cuál es cuál: `descripcion` se guarda siempre, `descripcion_propuesta`
+ *  sólo si el proyecto todavía no tiene ninguna (ver upsertProjectProfile). Para CORREGIR una
+ *  descripción cargada hay que pasar --descripcion, que es exactamente el acto deliberado que
+ *  antes ocurría solo. */
+export function camposDeDescripcion(explicita, propuesta) {
+  const escrita = (explicita || "").trim();
+  if (escrita) return { descripcion: escrita, descripcion_propuesta: null };
+  return { descripcion: null, descripcion_propuesta: propuesta || null };
+}

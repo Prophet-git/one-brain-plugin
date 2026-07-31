@@ -1,12 +1,5 @@
 #!/bin/sh
-# onebrain-feature <slug>: exit 0 si el feature está activo (o ausente = default ON),
-# exit 1 si está explícitamente en false. Lee ~/.config/one-brain/features.json.
-FILE="$HOME/.config/one-brain/features.json"
-SLUG="$1"
-[ -n "$SLUG" ] || exit 0
-[ -r "$FILE" ] || exit 0   # sin archivo → default ON
-# busca "slug":false (tolerante a espacios). Si aparece → desactivado.
-if grep -qE "\"$SLUG\"[[:space:]]*:[[:space:]]*false" "$FILE"; then
-  exit 1
-fi
-exit 0
+# Puente al bin real, que vive en el core compartido. Existe para que las rutas que ya
+# circulan (avisos de arranque, skills, sesiones abiertas) sigan funcionando.
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec "$DIR/../core/bin/onebrain-feature" "$@"

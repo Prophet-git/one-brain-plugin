@@ -3,8 +3,12 @@
 # Uso: sh plugin/tests/run.sh
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH= cd -- "$DIR/.." && pwd)
+# Raíz del repo fuente. Solo existe cuando esto corre desde el checkout de one-brain: en el
+# repo público el plugin vive en la raíz, así que REPO apunta afuera y no tiene ni core/ ni
+# tests/. El assert de sincronía de abajo usa eso para saber dónde está corriendo.
+REPO=$(CDPATH= cd -- "$ROOT/.." && pwd)
 FIX="$DIR/fixtures"
-. "$ROOT/scripts/capture-lib.sh"
+. "$ROOT/core/scripts/capture-lib.sh"
 
 PASS=0; FAIL=0
 assert_eq() { # <desc> <expected> <actual>
@@ -100,7 +104,7 @@ assert_eq "resolve borra reminded-<id> (cruft)" 0 "$([ -e "$PD/reminded-SESSCRUF
 assert_eq "resolve borra unsaved-count-<id> (cruft)" 0 "$([ -e "$PD/unsaved-count-SESSCRUFT" ] && echo 1 || echo 0)"
 
 # --- onebrain-resolve-pending: el bin equivalente que usa la skill session-capture ---
-RESB="$ROOT/bin/onebrain-resolve-pending"
+RESB="$ROOT/core/bin/onebrain-resolve-pending"
 [ -x "$RESB" ]; assert_eq "onebrain-resolve-pending existe y es ejecutable" 0 "$?"
 export HOME="$(mktemp -d)"; PD2=$(ob_pending_dir); mkdir -p "$PD2"
 printf 'transcript=/x/t.jsonl\n' > "$PD2/pending-SESSXYZ"
@@ -376,7 +380,7 @@ grep -q '^description:' "$STK" 2>/dev/null; assert_eq "status tiene description"
 grep -qE 'onebrain-token|verify' "$STK" 2>/dev/null; assert_eq "status menciona onebrain-token/verify" 0 "$?"
 
 # --- onebrain-feature ---
-FEAT="$ROOT/bin/onebrain-feature"
+FEAT="$ROOT/core/bin/onebrain-feature"
 [ -x "$FEAT" ]; assert_eq "onebrain-feature existe y es ejecutable" 0 "$?"
 
 HOME_T=$(mktemp -d)
@@ -396,7 +400,7 @@ env HOME="$HOME_T" "$FEAT" daily-synthesis
 assert_eq "feature ausente del json => exit 0 (default ON)" 0 "$?"
 
 # --- doctor: cada chequeo diagnostica el entorno REAL que se le pasa (HOME aislado) ---
-. "$ROOT/scripts/doctor-lib.sh"
+. "$ROOT/core/scripts/doctor-lib.sh"
 estado() { printf '%s' "$1" | cut -d'|' -f2; }
 
 DOC_HOME=$(mktemp -d)
@@ -404,25 +408,25 @@ mkdir -p "$DOC_HOME/.config/one-brain"
 
 # sin token
 assert_eq "doctor: sin token => falla" "falla" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # token corto (pegado a medias)
 printf 'ob_123' > "$DOC_HOME/.config/one-brain/token"
 assert_eq "doctor: token truncado => falla" "falla" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # token válido
 printf 'ob_una_clave_larga_de_verdad_1234567890' > "$DOC_HOME/.config/one-brain/token"
 assert_eq "doctor: token presente => ok" "ok" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # hooks apagados a nivel Claude Code
 printf '{"disableAllHooks": true}' > "$DOC_HOME/settings.json"
 assert_eq "doctor: disableAllHooks => falla" "falla" \
-  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
+  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
 printf '{"model": "opus"}' > "$DOC_HOME/settings.json"
 assert_eq "doctor: hooks habilitados => ok" "ok" \
-  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
+  "$(estado "$(env CLAUDE_SETTINGS_FILE="$DOC_HOME/settings.json" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_hooks_activos')")"
 
 # --- doctor / carpeta: el chequeo mira los DOS caminos de alta ---
 # El de la terminal deja el CLAUDE.md en la carpeta fija que arma setup.sh; el de la app deja
@@ -435,7 +439,7 @@ assert_eq "doctor: hooks habilitados => ok" "ok" \
 # corra los tests) decidiría el resultado.
 carpeta_desde() { # <cwd> [env extra...] -> imprime el estado del chequeo
   _cwd=$1; shift
-  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_carpeta' )
+  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_carpeta' )
 }
 NEUTRO=$(mktemp -d) # cwd sin ningún CLAUDE.md arriba
 # (mktemp -d cuelga de /var/folders en Mac y /tmp en Linux: ningún CLAUDE.md en el camino)
@@ -474,7 +478,7 @@ printf '%s' "$(carpeta_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | gre
 assert_eq "doctor: el aviso no le tira un curl a quien quizá no usa terminal" 1 "$?"
 
 # ob_doc_claudemd_cerca sale 1 (y no imprime) cuando no hay nada: el que llama distingue.
-( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
+( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
 assert_eq "ob_doc_claudemd_cerca: sin CLAUDE.md con reglas => exit 1" 1 "$?"
 
 # el parser del hook anda en este entorno (misma señal que ob_selftest)
@@ -512,7 +516,7 @@ cat > "$V_PLUGINS" <<'JSON'
 }
 JSON
 version_de() { # <root del plugin que "corre"> [archivo installed_plugins]
-  env CLAUDE_PLUGINS_FILE="${2-$V_PLUGINS}" sh -c '. '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_version "$1"' _ "$1"
+  env CLAUDE_PLUGINS_FILE="${2-$V_PLUGINS}" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_version "$1"' _ "$1"
 }
 detalle() { printf '%s' "$1" | cut -d'|' -f3; }
 
@@ -534,7 +538,7 @@ printf '%s' "$(detalle "$(version_de "$V_HOME/vieja" "$V_HOME/no-existe.json")")
 assert_eq "doctor: sin registro reporta la del directorio" 0 "$?"
 
 # el ejecutable existe y nunca imprime el token en claro
-DOC="$ROOT/bin/onebrain-doctor"
+DOC="$ROOT/core/bin/onebrain-doctor"
 [ -x "$DOC" ]; assert_eq "onebrain-doctor existe y es ejecutable" 0 "$?"
 SALIDA=$(env HOME="$DOC_HOME" ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" ONE_BRAIN_URL="http://127.0.0.1:9" "$DOC" 2>&1)
 printf '%s' "$SALIDA" | grep -q 'ob_una_clave_larga'; assert_eq "doctor NUNCA imprime el token" 1 "$?"
@@ -710,7 +714,7 @@ assert_eq "README.md del plugin: reinicio ENTRE install y connect" "ok" "$(orden
 # trata como opcional. Pedirlo como requisito frenaba altas por una dependencia que no existe.
 sed -n '/^## Requisitos/,/^## /p' "$ROOT/ONBOARDING.md" | grep -q 'jq` instalado'
 assert_eq "ONBOARDING.md ya no exige jq en los requisitos" 1 "$?"
-grep -q 'jq' "$ROOT/bin/onebrain-constitution" && grep -q 'python3' "$ROOT/bin/onebrain-constitution"
+grep -q 'jq' "$ROOT/core/bin/onebrain-constitution" && grep -q 'python3' "$ROOT/core/bin/onebrain-constitution"
 assert_eq "…porque el bin de la constitución tiene fallback a python3" 0 "$?"
 
 # --- ONBOARDING.md: actualizar sin abrir una consola ---
@@ -792,12 +796,16 @@ assert_eq "flush concurrente: no quedan inflight-* colgados" 0 "$LEFTIN"
 
 # --- ob_try_save: timeout acotado a 8s (consistente con las otras llamadas de session-start,
 # que ya usan --max-time 8) para no colgar el arranque con un server caído/lento ---
-grep -q -- '--max-time 8' "$ROOT/scripts/capture-lib.sh"
+grep -q -- '--max-time 8' "$ROOT/core/scripts/capture-lib.sh"
 assert_eq "ob_try_save usa --max-time 8 (no 15)" 0 "$?"
 
-# --- session-start.sh: el flush de la cola corre BACKGROUNDEADO (no bloquea el arranque) ---
-grep -qE '^\( *ob_flush_queue\b.*& *\)' "$ROOT/scripts/session-start.sh"
-assert_eq "session-start.sh backgroundea ob_flush_queue" 0 "$?"
+# --- arranque: el flush de la cola corre BACKGROUNDEADO (no bloquea el arranque) ---
+# Se chequea en el core, que es donde vive el arranque desde que lo comparten los dos programas
+# (el adaptador de acá ya no tiene lógica). Sigue protegiendo lo mismo: si alguien le saca el
+# "( ... & )", un flush lento cuelga el arranque de todos los clientes, de los dos hosts.
+# El ^ tolera indentación: adentro de la función el paréntesis ya no arranca en la columna 0.
+grep -qE '^[[:space:]]*\( *ob_flush_queue\b.*& *\)' "$ROOT/core/scripts/session-start-lib.sh"
+assert_eq "el arranque backgroundea ob_flush_queue" 0 "$?"
 
 # Medición end-to-end: con un curl FAKE que tarda 3s, el arranque no debe sumar ese tiempo
 # por el flush (el propio bloque principal de session-start ya está acotado a ~3s en paralelo;
@@ -824,7 +832,7 @@ ELAPSED=$((T1 - T0))
 # area del autor en el server, que usa `input.area ?? user.area` — ?? no cae sobre "").
 # Se prueba con el bin REAL, sin token, así el payload se puede inspeccionar en la cola en
 # vez de mockear un server.
-SAVEBIN="$ROOT/bin/onebrain-save"
+SAVEBIN="$ROOT/core/bin/onebrain-save"
 export HOME="$(mktemp -d)"
 "$SAVEBIN" --type avance --title "T" --content "C" >/dev/null 2>&1
 QFILE_NOAREA=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
@@ -922,7 +930,7 @@ assert_eq "el inflight viejo ya no existe con ese nombre" 1 "$?"
 [ -e "$Q_REAP/inflight-888-queued-fresh" ]
 assert_eq "inflight reciente NO se toca (sesión probablemente viva)" 0 "$?"
 # restaura la implementación real (no dejar el stub contaminando tests que se agreguen después)
-. "$ROOT/scripts/capture-lib.sh"
+. "$ROOT/core/scripts/capture-lib.sh"
 
 # --- bin/onebrain-save: parseo de flags ---
 # Regresión: `shift 2` con un solo argumento restante NO baja $# en POSIX sh, así que el while
@@ -960,12 +968,16 @@ assert_eq "el aviso de recorte dice cómo recuperar lo que falta" 1 \
 assert_eq "no parte los acentos"         "ñandúes" "$(printf 'ñandúes migrando' | ob_clip 7 | head -n1)"
 assert_eq "UTF-8 sigue válido tras recortar" 0 "$(printf 'áéíóú ñandúes' | ob_clip 8 | python3 -c 'import sys; sys.stdin.buffer.read().decode("utf-8"); print(0)' 2>/dev/null || echo 1)"
 
-# --- session-start.sh: salida en TEXTO PLANO y con presupuesto ---
+# --- arranque: salida en TEXTO PLANO y con presupuesto ---
 # El JSON armado a mano quedaba inválido en cuanto el brief traía comillas o saltos de línea
 # reales (que es siempre), y Claude Code lo descartaba o mostraba el andamiaje en pantalla.
-SS_SRC="$ROOT/scripts/session-start.sh"
-grep -q 'hookSpecificOutput' "$SS_SRC"
-assert_eq "el hook NO arma JSON a mano (texto plano)" 1 "$?"
+# Se mira el CAMINO ENTERO de Claude Code —el core compartido y su adaptador—, no un archivo:
+# el sobre JSON existe en el paquete de Codex (su host lo pide), y lo que hay que defender es
+# que no se filtre a este lado. Con los dos archivos en el mismo grep, alcanza con que aparezca
+# en cualquiera de los dos para que esto se ponga en rojo.
+SS_SRC="$ROOT/core/scripts/session-start-lib.sh"
+grep -q 'hookSpecificOutput' "$SS_SRC" "$ROOT/scripts/session-start.sh"
+assert_eq "el camino de Claude Code NO arma JSON a mano (texto plano)" 1 "$?"
 grep -q 'ob_clip "$OB_MAX_TOTAL"' "$SS_SRC"
 assert_eq "la salida pasa por el techo de presupuesto" 0 "$?"
 # El material de síntesis pesa ~24 KB: pedirlo en cada arranque es lo que hacía que Claude Code
@@ -973,17 +985,17 @@ assert_eq "la salida pasa por el techo de presupuesto" 0 "$?"
 grep -q 'api/synthesis?peek=1' "$SS_SRC"
 assert_eq "la síntesis se consulta con ?peek=1 (no reclama ni trae el material)" 0 "$?"
 
-# --- session-start.sh: los curls CON EFECTO van detrás del gate de features ---
+# --- arranque: los curls CON EFECTO van detrás del gate de features ---
 # /api/synthesis toma el candado atómico del día y /api/mentions marca resoluciones como vistas.
 # Llamarlos y descartar el resultado después (como se hacía) le bloquea el día al equipo entero
 # y come avisos en silencio. El gate tiene que estar en la MISMA línea del curl.
-SS="$ROOT/scripts/session-start.sh"
-grep -q 'feat_on daily-synthesis && curl .*api/synthesis' "$SS"
-assert_eq "el curl a /api/synthesis va detrás de feat_on" 0 "$?"
-grep -q 'feat_on menciones && curl .*api/mentions' "$SS"
-assert_eq "el curl a /api/mentions va detrás de feat_on" 0 "$?"
+SS="$SS_SRC"
+grep -q 'ob_feat_on daily-synthesis && curl .*api/synthesis' "$SS"
+assert_eq "el curl a /api/synthesis va detrás de ob_feat_on" 0 "$?"
+grep -q 'ob_feat_on menciones && curl .*api/mentions' "$SS"
+assert_eq "el curl a /api/mentions va detrás de ob_feat_on" 0 "$?"
 
-SAVE_BIN="$ROOT/bin/onebrain-save"
+SAVE_BIN="$ROOT/core/bin/onebrain-save"
 TMP_HOME=$(mktemp -d)
 assert_eq "--title sin valor => error 2, no cuelga"  2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title)"
 assert_eq "--content sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --type avance --title T --content)"
@@ -1227,12 +1239,12 @@ assert_eq "telemetría: con brief gigante marca el recorte del brief" 0 "$?"
 # en un archivo que nadie sabe que existe no contesta nada. El chequeo traduce la última entrega.
 DOC_E=$(mktemp -d); mkdir -p "$DOC_E/.config/one-brain"
 assert_eq "doctor: sin telemetría todavía => aviso" "aviso" \
-  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')")"
+  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_entrega')")"
 printf '2026-07-26T14:00:00Z session=s1 chars=4200 bytes=4300 recortes=ninguno techo=no\n' > "$DOC_E/.config/one-brain/delivery.log"
 assert_eq "doctor: última entrega completa => ok" "ok" \
-  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')")"
+  "$(estado "$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_entrega')")"
 printf '2026-07-26T15:00:00Z session=s2 chars=8018 bytes=8200 recortes=resume,brief techo=si\n' >> "$DOC_E/.config/one-brain/delivery.log"
-SAL_E=$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_entrega')
+SAL_E=$(env HOME="$DOC_E" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_entrega')
 assert_eq "doctor: última entrega recortada => aviso" "aviso" "$(estado "$SAL_E")"
 printf '%s' "$(detalle "$SAL_E")" | grep -q 'resume,brief'
 assert_eq "doctor: el aviso nombra los bloques recortados" 0 "$?"
@@ -1241,7 +1253,7 @@ assert_eq "doctor: el aviso nombra los bloques recortados" 0 "$?"
 # El aviso de "quedó trabajo sin guardar" salía en TODOS los arranques y no había forma de ver
 # por qué: los markers viven en un directorio que nadie sabe que existe. Sin esta línea, la
 # única manera de responder "¿por qué me grita?" era leerse el código del hook.
-doc_cap() { env HOME="$1" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_captura'; }
+doc_cap() { env HOME="$1" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_captura'; }
 DOC_C=$(mktemp -d); mkdir -p "$DOC_C/.config/one-brain/pending"
 assert_eq "doctor: sin pendientes => ok" "ok" "$(estado "$(doc_cap "$DOC_C")")"
 TRD="$DOC_C/d.jsonl"; : > "$TRD"; touch -t 202001010000 "$TRD"
@@ -1291,7 +1303,14 @@ printf '400'
 FAKE400
 chmod +x "$FAKE_400/curl"
 printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+# OJO con el save/restore: `VAR=x funcion` NO es temporal cuando lo que se llama es una FUNCIÓN
+# de shell — en POSIX (y en el bash 3.2 que es /bin/sh en macOS) la asignación QUEDA en el
+# entorno después de que la función retorna. Sin restaurar, este curl falso se le colaba a todo
+# test agregado más abajo, en silencio: lo cazó el test de caracterización de session-start.sh,
+# que arrancaba sin brief ni menciones porque su curl era este stub que imprime "400".
+OB_PATH_ORIG=$PATH
 PATH="$FAKE_400:$PATH" ob_flush_queue
+PATH=$OB_PATH_ORIG
 [ -e "$(ob_queue_dir)/queued-rechazado" ]
 assert_eq "dead-letter: un 400 NO vuelve a la cola de reintento" 1 "$?"
 ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
@@ -1308,7 +1327,9 @@ printf '503'
 FAKE500
 chmod +x "$FAKE_500/curl"
 printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+OB_PATH_ORIG=$PATH
 PATH="$FAKE_500:$PATH" ob_flush_queue
+PATH=$OB_PATH_ORIG
 [ -e "$(ob_queue_dir)/queued-transitorio" ]
 assert_eq "dead-letter: un 503 SÍ vuelve a la cola (falla transitoria)" 0 "$?"
 ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
@@ -1326,7 +1347,9 @@ printf '429'
 FAKE429
 chmod +x "$FAKE_429/curl"
 printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+OB_PATH_ORIG=$PATH
 PATH="$FAKE_429:$PATH" ob_flush_queue
+PATH=$OB_PATH_ORIG
 [ -e "$(ob_queue_dir)/queued-429" ]
 assert_eq "dead-letter: un 429 vuelve a la cola (rate limit, no payload malo)" 0 "$?"
 
@@ -1351,7 +1374,7 @@ TMPHOME=$(mktemp -d)
 mkdir -p "$TMPHOME/.config/one-brain"
 printf 'ob_viejo_123' > "$TMPHOME/.config/one-brain/token"
 
-SALIDA=$(HOME="$TMPHOME" "$ROOT/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
+SALIDA=$(HOME="$TMPHOME" "$ROOT/core/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
 case "$SALIDA" in
   *reemplaz*) PASS=$((PASS+1)) ;;
   *) FAIL=$((FAIL+1)); printf 'FAIL: set sobre un token distinto no avisa que lo reemplaza (salida=%s)\n' "$SALIDA" ;;
@@ -1359,7 +1382,7 @@ esac
 assert_eq "set igual pisa el token" "ob_nuevo_456" "$(cat "$TMPHOME/.config/one-brain/token")"
 
 # Reconectar al MISMO cerebro es rutina (se rota la llave, se reinstala): no hay nada que avisar.
-SALIDA=$(HOME="$TMPHOME" "$ROOT/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
+SALIDA=$(HOME="$TMPHOME" "$ROOT/core/bin/onebrain-token" set "ob_nuevo_456" 2>&1)
 case "$SALIDA" in
   *reemplaz*) FAIL=$((FAIL+1)); printf 'FAIL: avisa de reemplazo guardando el MISMO token (salida=%s)\n' "$SALIDA" ;;
   *) PASS=$((PASS+1)) ;;
@@ -1367,7 +1390,7 @@ esac
 
 # Primera conexión de la máquina: tampoco hay nada que avisar.
 TMPHOME2=$(mktemp -d)
-SALIDA=$(HOME="$TMPHOME2" "$ROOT/bin/onebrain-token" set "ob_primero" 2>&1)
+SALIDA=$(HOME="$TMPHOME2" "$ROOT/core/bin/onebrain-token" set "ob_primero" 2>&1)
 case "$SALIDA" in
   *reemplaz*) FAIL=$((FAIL+1)); printf 'FAIL: avisa de reemplazo en la primera conexión (salida=%s)\n' "$SALIDA" ;;
   *) PASS=$((PASS+1)) ;;
@@ -1384,7 +1407,7 @@ case "$DEFAULT_MCP" in
   https://*) PASS=$((PASS+1)) ;;
   *) FAIL=$((FAIL+1)); printf 'FAIL: .mcp.json no usa ${ONE_BRAIN_URL:-...} en la url (leido=%s)\n' "$DEFAULT_MCP" ;;
 esac
-for f in scripts/session-start.sh scripts/capture-lib.sh scripts/doctor-lib.sh bin/onebrain-token bin/onebrain-save bin/onebrain-constitution; do
+for f in core/scripts/session-start-lib.sh core/scripts/capture-lib.sh core/scripts/doctor-lib.sh core/bin/onebrain-token core/bin/onebrain-save core/bin/onebrain-constitution; do
   D=$(sed -n 's|.*ONE_BRAIN_URL:-\([^}]*\)}.*|\1|p' "$ROOT/$f" | head -1)
   assert_eq "$f usa el mismo dominio por default que .mcp.json" "$DEFAULT_MCP" "$D"
 done
@@ -1406,11 +1429,157 @@ esac; done
 printf '403'
 FAKECH
 chmod +x "$FCH/curl"
-SAL_CH=$(env HOME="$DOC_CH" PATH="$FCH:$PATH" sh -c '. '"$ROOT"'/scripts/capture-lib.sh; . '"$ROOT"'/scripts/doctor-lib.sh; ob_doc_conexion')
+SAL_CH=$(env HOME="$DOC_CH" PATH="$FCH:$PATH" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_conexion')
 printf '%s' "$SAL_CH" | grep -qi 'token'
 assert_eq "challenge: NO dice que el token esté mal" 1 "$?"
 printf '%s' "$SAL_CH" | grep -qi 'bloque\|challenge\|defensa\|protec'
 assert_eq "challenge: explica que el dominio está bloqueado" 0 "$?"
+
+# --- puentes de bin/: las rutas viejas siguen llegando al bin real del core ------------------
+# Al extraer el core, plugin/bin/* dejó de tener la implementación y pasó a ser un puente que
+# hace exec al bin de core/bin/. Esas rutas viejas siguen circulando: session-start.sh imprime
+# "$DIR/../bin/onebrain-save" en el aviso de arranque y las sesiones YA ABIERTAS lo tienen en su
+# contexto, así que un puente roto = un cliente que no puede guardar. El resto de la batería
+# apunta directo al core, o sea que sin esto nadie cazaría la rotura.
+# Los bins con efecto NO se ejecutan (onebrain-save escribiría en el cerebro de producción): para
+# los ocho se verifica el MECANISMO de resolución leyendo el destino del propio exec; los dos
+# inocuos además se corren de verdad, con HOME aislado y sin red.
+PB_BINDIR=$(CDPATH= cd -- "$ROOT/bin" && pwd)
+PB_COREDIR=$(CDPATH= cd -- "$ROOT/core/bin" && pwd)
+for PB_B in onebrain-save onebrain-doctor onebrain-feature onebrain-token onebrain-constitution onebrain-resolve-pending onebrain-project-pull onebrain-project-push; do
+  PB_PUENTE="$PB_BINDIR/$PB_B"
+  [ -x "$PB_PUENTE" ]
+  assert_eq "puente $PB_B: existe y es ejecutable" 0 "$?"
+  # El destino sale del exec del propio puente, no de una constante del test: si alguien lo
+  # reapunta a otro lado, el test lo sigue hasta donde realmente apunta.
+  PB_DEST=$(sed -n 's|^exec "\([^"]*\)".*|\1|p' "$PB_PUENTE" | head -1)
+  PB_DEST_ABS=$(printf '%s' "$PB_DEST" | sed 's|^[$]DIR|'"$PB_BINDIR"'|')
+  [ -n "$PB_DEST" ] && [ -x "$PB_DEST_ABS" ]
+  assert_eq "puente $PB_B: su exec resuelve a un ejecutable que existe" 0 "$?"
+  PB_DEST_REAL=$(CDPATH= cd -- "$(dirname -- "$PB_DEST_ABS")" 2>/dev/null && pwd)
+  assert_eq "puente $PB_B: resuelve al bin del core" "$PB_COREDIR/$PB_B" "$PB_DEST_REAL/$(basename -- "$PB_DEST_ABS")"
+done
+
+# Los dos inocuos, ejecutados POR LA RUTA VIEJA: si el puente no llegara al bin real, la lógica
+# del bin real (su mensaje, su exit code) no tendría cómo manifestarse.
+PB_HOME=$(mktemp -d)
+PB_SAL=$(HOME="$PB_HOME" "$PB_BINDIR/onebrain-token" get 2>&1); PB_RC=$?
+assert_eq "puente onebrain-token: ejecutado por la ruta vieja corre el bin real" "sin token" "$PB_SAL"
+assert_eq "puente onebrain-token: propaga el exit code del bin real" 1 "$PB_RC"
+HOME="$PB_HOME" "$PB_BINDIR/onebrain-feature" auto-capture
+assert_eq "puente onebrain-feature: sin features.json => exit 0 (default ON)" 0 "$?"
+mkdir -p "$PB_HOME/.config/one-brain"
+printf '{"auto-capture":false}' > "$PB_HOME/.config/one-brain/features.json"
+HOME="$PB_HOME" "$PB_BINDIR/onebrain-feature" auto-capture
+assert_eq "puente onebrain-feature: feature en false => exit 1 (llegó al bin real)" 1 "$?"
+
+# --- El aviso de captura degradada nombra ESTE programa ---------------------------------------
+# El texto lo arma core/, que ahora hospeda dos programas, y tenía el nombre de uno solo escrito
+# a mano. Del lado de Codex nombraba el programa equivocado justo en el aviso que sale cuando
+# algo se rompió; del lado de acá hay CUATRO instalaciones en producción leyendo esa frase, así
+# que la frase de acá se congela LITERAL. El golden no la cubre: sólo se emite cuando el parser
+# del hook está roto, y en el entorno del golden anda.
+#
+# Se rompe el parser sin desarmar el entorno: un `jq` falso que sale con error alcanza, porque
+# ob_json_field lo prueba PRIMERO y se queda con su resultado (así lo descubriría un cliente con
+# un jq viejo o mal instalado, que es el caso real). Sin token a propósito: este aviso vive fuera
+# del gate de token, y así el bloque emitido es sólo él.
+DEG_BIN=$(mktemp -d)
+printf '#!/bin/sh\nexit 1\n' > "$DEG_BIN/jq"; chmod +x "$DEG_BIN/jq"
+printf '#!/bin/sh\nexit 0\n' > "$DEG_BIN/curl"; chmod +x "$DEG_BIN/curl"
+DEG_HOME=$(mktemp -d); mkdir -p "$DEG_HOME/.config/one-brain"
+DEG_OUT=$(printf '{"session_id":"degradado","source":"startup"}' \
+  | HOME="$DEG_HOME" PATH="$DEG_BIN:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null)
+assert_eq "captura degradada: el aviso sale TAL CUAL lo viene leyendo producción" \
+  '⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de Claude Code (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario.' \
+  "$DEG_OUT"
+# Y la contracara, que es el bug que esto vino a cerrar: el core NO puede volver a tener el
+# nombre de un host escrito a mano en un texto que lee una persona.
+grep -qE 'ob_client_name\(\)' "$ROOT/core/scripts/session-start-lib.sh"
+assert_eq "el core resuelve el nombre del programa host en un solo lugar" 0 "$?"
+
+# Caracterización de session-start.sh (corre aparte: levanta un server mock).
+if sh "$DIR/session-start-test.sh" >/dev/null 2>&1; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); printf 'FAIL: session-start-test.sh\n'; fi
+
+# Sincronía de core/ con las copias vendorizadas. Vive en tests/ del repo, pero hasta ahora no
+# lo invocaba NADIE —ni esta batería, ni CI, ni el publish— o sea que la garantía dependía de
+# que alguien se acordara. El modo de falla dominante es el más tonto y el más silencioso:
+# correr sh scripts/sync-core.sh, commitear core/ y olvidarse de git add plugin/core. Desde
+# acá lo agarra la batería, que es lo que la gente sí corre.
+# Si estamos en el checkout del repo (hay core/ arriba), el guard TIENE que existir: que el
+# archivo desaparezca no puede volver a ser un skip silencioso.
+if [ -d "$REPO/core" ]; then
+  if [ ! -f "$REPO/tests/core-sync-test.sh" ]; then
+    FAIL=$((FAIL+1)); printf 'FAIL: falta tests/core-sync-test.sh (desapareció el guard de sincronía del core)\n'
+  elif sh "$REPO/tests/core-sync-test.sh" >/dev/null 2>&1; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL: core-sync-test.sh — core/ y las copias vendorizadas difieren (corré sh scripts/sync-core.sh)\n'
+  fi
+fi
+
+# La batería de core/bin/onebrain-codex-config, el bin que escribe el token en la config de
+# Codex. Se engancha acá por el mismo motivo que el guard de sincronía: vive en tests/ del repo
+# y si no lo llama la batería no lo corre nadie. Y el bin es de core/, así que viaja adentro de
+# LOS DOS paquetes — romperlo desde el paquete de Claude Code es perfectamente posible.
+# Mismo criterio que arriba: solo cuando esto corre desde el checkout del repo (hay core/
+# arriba), y si el archivo desapareció eso es una falla, no un skip silencioso.
+if [ -d "$REPO/core" ]; then
+  if [ ! -f "$REPO/tests/codex-config-test.sh" ]; then
+    FAIL=$((FAIL+1)); printf 'FAIL: falta tests/codex-config-test.sh (desapareció la batería del bin de conexión de Codex)\n'
+  elif sh "$REPO/tests/codex-config-test.sh" >/dev/null 2>&1; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL: codex-config-test.sh — corrélo suelto para ver el detalle: sh tests/codex-config-test.sh\n'
+  fi
+fi
+
+# La batería del hook de arranque de Codex. Se engancha acá por la misma razón que las dos de
+# arriba, y por una propia: desde que el arranque se comparte, el core que corre en la máquina de
+# los cuatro clientes de Claude Code es EXACTAMENTE el que prueba ese test. Uno de sus casos
+# compara la salida de los dos programas: si alguien toca el core mirando sólo un lado, se pone
+# en rojo acá, que es la batería que la gente sí corre.
+if [ -d "$REPO/core" ]; then
+  if [ ! -f "$REPO/tests/codex-session-start-test.sh" ]; then
+    FAIL=$((FAIL+1)); printf 'FAIL: falta tests/codex-session-start-test.sh (desapareció la batería del arranque de Codex)\n'
+  elif sh "$REPO/tests/codex-session-start-test.sh" >/dev/null 2>&1; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL: codex-session-start-test.sh — corrélo suelto para ver el detalle: sh tests/codex-session-start-test.sh\n'
+  fi
+fi
+
+# La batería del aviso de trabajo sin guardar de Codex. Mismo enganche y mismo motivo: el lector
+# del rollout (core/scripts/capture-codex.sh) vive en core/, así que viaja adentro del paquete de
+# Claude Code y se puede romper desde acá sin querer. Es la pieza que decide si el aviso sale:
+# rota de más grita cuando no corresponde —y un aviso que sale siempre se lee como decorado—,
+# rota de menos deja perder trabajo en silencio.
+if [ -d "$REPO/core" ]; then
+  if [ ! -f "$REPO/tests/codex-guard-test.sh" ]; then
+    FAIL=$((FAIL+1)); printf 'FAIL: falta tests/codex-guard-test.sh (desapareció la batería del aviso de trabajo sin guardar de Codex)\n'
+  elif sh "$REPO/tests/codex-guard-test.sh" >/dev/null 2>&1; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL: codex-guard-test.sh — corrélo suelto para ver el detalle: sh tests/codex-guard-test.sh\n'
+  fi
+fi
+
+# El contrato de las skills del paquete de Codex: que no le nombren a la persona un programa ni
+# un comando que en Codex no existen, y que todo ejecutable que le indican al modelo exista y se
+# invoque por ruta completa (acá los bins NO están en el PATH). Se engancha en esta batería por
+# la misma razón que las de arriba —vive en tests/ del repo y si no la llama nadie no corre—, y
+# por una propia: las cinco skills salieron de las skills de ESTE paquete, así que el error que
+# previene es justamente el de copiar de acá sin adaptar. Ninguna de las dos fallas hace ruido:
+# la persona recibe una instrucción que no puede seguir, o el modelo un comando que no existe.
+if [ -d "$REPO/core" ]; then
+  if [ ! -f "$REPO/tests/codex-skills-test.sh" ]; then
+    FAIL=$((FAIL+1)); printf 'FAIL: falta tests/codex-skills-test.sh (desapareció el contrato de las skills de Codex)\n'
+  elif sh "$REPO/tests/codex-skills-test.sh" >/dev/null 2>&1; then
+    PASS=$((PASS+1))
+  else
+    FAIL=$((FAIL+1)); printf 'FAIL: codex-skills-test.sh — corrélo suelto para ver el detalle: sh tests/codex-skills-test.sh\n'
+  fi
+fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

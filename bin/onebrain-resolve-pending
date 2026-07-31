@@ -1,9 +1,5 @@
 #!/bin/sh
-# onebrain-resolve-pending <session-id>: borra la marca pending-<session-id> tras un guardado
-# CONFIRMADO. La skill session-capture la corre SOLO cuando el rescate de una sesión anterior
-# se guardó bien (brain_save/onebrain-save devolvieron entry_id); si el guardado falló, NO se
-# llama — el aviso de SessionStart debe seguir insistiendo en el próximo arranque.
+# Puente al bin real, que vive en el core compartido. Existe para que las rutas que ya
+# circulan (avisos de arranque, skills, sesiones abiertas) sigan funcionando.
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-. "$DIR/../scripts/capture-lib.sh"
-[ -n "$1" ] || { echo "onebrain-resolve-pending: falta <session-id>" >&2; exit 2; }
-ob_resolve_pending "$1"
+exec "$DIR/../core/bin/onebrain-resolve-pending" "$@"

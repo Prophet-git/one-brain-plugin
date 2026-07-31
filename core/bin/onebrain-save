@@ -1,0 +1,116 @@
+#!/bin/sh
+# onebrain-save: guarda una memoria por el canal Bash (inmune al deferred de la tool MCP).
+# Uso: onebrain-save --type avance --title "T" --content "C" [--entities "a,b"] [--area x]
+#                    [--supersedes <uuid-de-la-memoria-que-reemplaza>]
+# Éxito: imprime el entry_id. Fallo de red/server: encola para reintento (NO se pierde).
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+. "$DIR/../scripts/capture-lib.sh"
+
+TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""; SUPERSEDES=""
+# OJO con `shift 2`: en POSIX sh, si queda UN solo argumento, falla y NO baja $# — el while
+# gira para siempre. Pasa cuando el modelo arma el comando y un flag queda sin valor (alcanza
+# una comilla que rompe el quoting), justo al cerrar la sesión. De ahí el guard explícito.
+need_val() { # <flag> <cantidad de args restantes>
+  [ "$2" -ge 2 ] || { echo "onebrain-save: falta el valor de $1" >&2; exit 2; }
+}
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --type)     need_val "$1" $#; TYPE=$2; shift 2 ;;
+    --title)    need_val "$1" $#; TITLE=$2; shift 2 ;;
+    --content)  need_val "$1" $#; CONTENT=$2; shift 2 ;;
+    --entities) need_val "$1" $#; ENTITIES=$2; shift 2 ;;
+    --area)     need_val "$1" $#; AREA=$2; shift 2 ;;
+    # supersedes: el id de la memoria que ésta reemplaza o CORRIGE (de cualquier tipo, no
+    # sólo decisiones). El server ya la invalida
+    # (invalidated_at/invalidated_by) desde siempre, pero sin este flag las skills no tenían
+    # cómo pasarlo por el canal Bash: 0 de 529 entradas invalidadas en prod.
+    --supersedes) need_val "$1" $#; SUPERSEDES=$2; shift 2 ;;
+    # Un flag mal escrito se descartaba en silencio y la memoria se guardaba incompleta (sin
+    # entidades, sin área), sin que nadie se enterara. Mejor fallar y que el modelo corrija.
+    *) echo "onebrain-save: opción desconocida: $1" >&2; exit 2 ;;
+  esac
+done
+[ -n "$TITLE" ] && [ -n "$CONTENT" ] || { echo "onebrain-save: faltan --title/--content" >&2; exit 2; }
+
+# El id se valida ACÁ y no allá: el server lo parsea con z.string().uuid(), así que un id mal
+# copiado (el título de la decisión, un id truncado, "la anterior") devuelve 400 — y desde A-5
+# un 4xx NO se encola, así que se perdería la memoria ENTERA por el flag accesorio. Fallar antes
+# de armar el payload deja el contenido en manos del modelo para reintentar con el id bueno.
+# La forma (8-4-4-4-12 hex) y nada más, a propósito: el zod del server tampoco exige nibble de
+# versión ni de variante (verificado con el schema real: acepta el uuid nil y uno de puras f),
+# y ser MÁS estricto acá rechazaría ids que el server sí acepta. Esto ataja el error humano.
+if [ -n "$SUPERSEDES" ]; then
+  printf '%s' "$SUPERSEDES" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || {
+    echo "onebrain-save: --supersedes espera el uuid de la memoria anterior (ej. 8f3d0a1e-2b4c-4d6e-9f01-23456789abcd); recibí '$SUPERSEDES'. Buscá el id con brain_search y reintentá." >&2
+    exit 2
+  }
+fi
+
+ENT_JSON="[]"
+if [ -n "$ENTITIES" ]; then
+  ENT_JSON=$(printf '%s' "$ENTITIES" | awk -F, '{printf "[";for(i=1;i<=NF;i++){gsub(/"/,"\\\"",$i);printf "%s\"%s\"",(i>1?",":""),$i};printf "]"}')
+fi
+jstr() {
+  if command -v jq >/dev/null 2>&1; then printf '%s' "$1" | jq -Rs .;
+  else printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g' | awk '{printf "%s\\n",$0}' | sed '$ s/\\n$//')"; fi
+}
+# Las claves opcionales se OMITEN cuando no vinieron, nunca se mandan vacías:
+#  - area: en el server, brainSave hace `area: input.area ?? user.area`, y `??` NO cae sobre
+#    string vacío. Con "area":"" se pisaba el área heredada del autor por un string vacío en vez
+#    de heredar. La skill session-capture llama a este bin SIN --area, así que las memorias
+#    auto-capturadas perdían el área del usuario.
+#  - supersedes: el server lo valida como uuid, así que "supersedes":"" haría fallar con 400
+#    TODOS los guardados normales (que son la enorme mayoría).
+AREA_KV=""
+[ -n "$AREA" ] && AREA_KV=$(printf ',"area":%s' "$(jstr "$AREA")")
+SUP_KV=""
+# Seguro de interpolar sin escapar: ya pasó la validación de uuid (solo hex y guiones).
+[ -n "$SUPERSEDES" ] && SUP_KV=$(printf ',"supersedes":"%s"' "$SUPERSEDES")
+PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s%s%s}' \
+  "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON" "$AREA_KV" "$SUP_KV")
+
+TOKEN_FILE="$(ob_config_dir)/token"
+TOKEN=""
+[ -r "$TOKEN_FILE" ] && TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE" 2>/dev/null)
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
+[ -n "$TOKEN" ] || { echo "onebrain-save: sin token; encolo" >&2; ob_enqueue "$PAYLOAD"; exit 0; }
+
+RESP=$(curl -s --max-time 15 -w '\n%{http_code}' -X POST \
+  -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -d "$PAYLOAD" "$URL/api/entry" 2>/dev/null)
+CODE=$(printf '%s' "$RESP" | tail -n1)
+BODY=$(printf '%s' "$RESP" | sed '$d')
+# Qué se encola y qué no: la cola es para fallas TRANSITORIAS (red caída, server con 5xx,
+# rate limit). Un 4xx es el server diciendo "este payload está mal" — encolarlo lo condena a
+# fallar en cada arranque para siempre, sumando segundos de curl inútil, mientras la skill le
+# informa al usuario que "quedó pendiente, no perdido". Mentira: nunca va a entrar. Mejor
+# devolver el error para que el modelo corrija en el momento (acortar el título, recortar el
+# contenido) y reintente con algo que sí entre.
+case "$CODE" in
+  200)
+    printf '%s\n' "$(ob_json_field entry_id "$BODY")"
+    # El server contesta 200 con `warning` cuando el save entró pero algo quedó a medias — el
+    # caso típico es un `supersedes` que no matcheó ninguna decisión de este cerebro (id de
+    # otro tenant, o de una entrada que no es `decision`): la memoria nueva se guarda igual y
+    # la vieja sigue vigente. Tragarse ese aviso deja al equipo con dos decisiones contra-
+    # dictorias creyendo que una reemplazó a la otra, que es justo lo que veníamos a arreglar.
+    # Va a stderr para no ensuciar el stdout, que es el contrato del bin (imprime el entry_id).
+    OB_WARN=$(ob_json_field warning "$BODY")
+    if [ -n "$OB_WARN" ]; then echo "onebrain-save: $OB_WARN" >&2; fi
+    ;;
+  429|5??|000|"")
+    echo "onebrain-save: server respondió ${CODE:-sin respuesta}; encolo para reintento" >&2
+    ob_enqueue "$PAYLOAD"
+    exit 0
+    ;;
+  4??)
+    echo "onebrain-save: el server rechazó la memoria ($CODE). NO se encoló: corregí y reintentá." >&2
+    [ -n "$BODY" ] && printf '%s\n' "$BODY" >&2
+    exit 1
+    ;;
+  *)
+    echo "onebrain-save: respuesta inesperada ($CODE); encolo para reintento" >&2
+    ob_enqueue "$PAYLOAD"
+    exit 0
+    ;;
+esac

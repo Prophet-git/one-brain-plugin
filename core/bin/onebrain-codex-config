@@ -1,0 +1,135 @@
+#!/bin/sh
+# onebrain-codex-config <token> [ruta-config.toml]
+# Escribe (o actualiza) la sección [mcp_servers.one-brain] de la config de Codex con el
+# header Authorization. Codex no tiene headersHelper —el mecanismo que en Claude Code lee
+# el token en cada conexión—, así que el token tiene que quedar escrito en su config.
+#
+# La reescritura es por bloque: se borra la sección vieja entera y se agrega la nueva al
+# final. Editar la línea del token in-place parece más prolijo pero se rompe con cualquier
+# variante de formato (comillas simples, espacios alrededor del '='), y una config de Codex
+# rota deja al usuario sin NINGÚN server MCP, no solo sin este.
+#
+# Todo lo que sigue está escrito alrededor de un hecho medido en codex 0.136: la config no
+# degrada por partes. Si queda con TOML inválido —una sección duplicada alcanza— Codex tira
+# "failed to load configuration" y arranca sin NADA: ni el modelo del usuario ni sus otros
+# servers. El peor final de este script no es dejar One Brain desconectado, es dejar al
+# usuario sin su Codex. Por eso: ante la duda, no escribir.
+set -e
+
+TOKEN="$1"
+# Codex no vive obligatoriamente en ~/.codex: CODEX_HOME reubica su carpeta entera (config,
+# sesiones, plugins) y quien la usa la tiene seteada siempre. Escribir en ~/.codex mientras
+# Codex lee otra carpeta es la falla más silenciosa que este bin puede tener: el comando de
+# conexión dice "token escrito", la persona ve "conectado", y las tools del cerebro no existen
+# —el server MCP quedó declarado en un archivo que Codex nunca abre—. Sin error, sin 401, sin
+# pista. En una instalación normal las dos rutas coinciden, así que no se nota hasta que le toca
+# a alguien. Con :- (y no :=) una CODEX_HOME vacía vale como "no está seteada": una ruta vacía
+# daría "/config.toml", en la raíz del filesystem.
+# El segundo argumento sigue mandando sobre todo: es por donde los tests apuntan a un temporal.
+CONFIG="${2:-${CODEX_HOME:-$HOME/.codex}/config.toml}"
+
+# Encabezado de la sección de one-brain, en las formas que TOML acepta para la MISMA clave:
+# con indentación (TOML la permite), con la clave entrecomillada ("one-brain" / 'one-brain') y
+# con espacios alrededor del punto. Todas son configs válidas que el bin tiene que reconocer
+# como "esta sección ya existe": la que no reconozca no la borra, y entonces la que agregamos
+# más abajo queda duplicada => "duplicate key" => Codex sin config.
+RE_SECCION="^[[:space:]]*\[[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*[\"']?one-brain[\"']?[[:space:]]*[].]"
+
+# Modo reconciliación: lo llama el hook de arranque. Compara el token del archivo (fuente de
+# verdad) contra el que está escrito en la config de Codex y, si difieren, reescribe. Sin
+# archivo de token no hace nada: no hay con qué reconciliar y borrar la config sería peor.
+if [ "$TOKEN" = "--reconciliar" ]; then
+  ARCHIVO="${ONE_BRAIN_TOKEN_FILE:-$HOME/.config/one-brain/token}"
+  [ -r "$ARCHIVO" ] && [ -s "$ARCHIVO" ] || exit 0
+  # Misma limpieza que scripts/headers.sh en el paquete de Claude Code: espacios, CRLF, NUL y
+  # los bytes de los 3 BOM. Allá el token se limpia en CADA conexión; acá se escribe UNA vez en
+  # la config, así que un BOM invisible que se cuele queda pegado y el server contesta 401 para
+  # siempre sin ninguna pista. LC_ALL=C porque los bytes de un BOM UTF-16 no son UTF-8 válido y
+  # bajo un locale UTF-8 tr los rechaza en vez de borrarlos (con set -e, muerte silenciosa).
+  DESEADO=$(LC_ALL=C tr -d ' \t\r\n\000\357\273\277\377\376' < "$ARCHIVO")
+  [ -n "$DESEADO" ] || exit 0
+  # El Authorization que se compara es el DE ONE-BRAIN, no el primero del archivo: otro server
+  # puede tener el suyo más arriba. Mirando el primero, la comparación daba distinto siempre y
+  # la config del usuario se reescribía en cada arranque de Codex.
+  ACTUAL=""
+  if [ -f "$CONFIG" ]; then
+    # El `|| true` va ADENTRO de la sustitución: si el awk sale != 0, con set -e el script se
+    # moriría en la asignación, en silencio y sin reconciliar nada.
+    ACTUAL=$(awk -v re="$RE_SECCION" '
+      $0 ~ re { dentro = 1; next }
+      /^[[:space:]]*\[/ { dentro = 0 }
+      dentro && match($0, /Bearer[ \t]+[A-Za-z0-9_-]+/) {
+        v = substr($0, RSTART, RLENGTH); sub(/^Bearer[ \t]+/, "", v); print v; exit
+      }
+    ' "$CONFIG" 2>/dev/null || true)
+  fi
+  [ "$DESEADO" = "$ACTUAL" ] && exit 0
+  TOKEN="$DESEADO"
+fi
+
+[ -n "$TOKEN" ] || { echo "onebrain-codex-config: falta el token" >&2; exit 2; }
+
+# Un token nunca empieza con "-", así que algo que empieza así es una bandera que este bin no
+# conoce. No alcanza con el filtro de caracteres de abajo: el "-" es válido ADENTRO de un token,
+# o sea que "--loquesea" pasaría y quedaría escrito como si fuera el token. Pasó de verdad
+# probando esto: Codex cachea el paquete por versión y la copia instalada era anterior a
+# --reconciliar, así que recibió el flag y lo escribió — la config terminó con
+# `Authorization = "Bearer --reconciliar"`, que es 401 para siempre y sin ninguna pista.
+case "$TOKEN" in
+  -*) echo "onebrain-codex-config: '$TOKEN' no es un token ni una opción que este comando conozca" >&2; exit 2 ;;
+esac
+
+# Un token real es "ob_" + slug + "_" + hex (ver src/lib/provision.ts): solo alfanumérico,
+# guión y guión bajo. Cualquier otra cosa escribiría TOML inválido.
+case "$TOKEN" in
+  *[!A-Za-z0-9_-]*) echo "onebrain-codex-config: el token tiene caracteres inválidos" >&2; exit 2 ;;
+esac
+
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}/api/mcp"
+mkdir -p "$(dirname "$CONFIG")" 2>/dev/null || true
+[ -e "$CONFIG" ] || : > "$CONFIG"
+
+# El temporal lleva el PID: el modo reconciliación lo llama el hook de arranque, así que dos
+# ventanas de Codex abriéndose a la vez corren esto en paralelo. Con un nombre fijo se pisarían
+# el temporal y el mv podría publicar un archivo a medio escribir. Sigue en el mismo directorio
+# que el destino para que el mv sea atómico (mismo filesystem).
+TMP="$CONFIG.onebrain.$$.tmp"
+# Se crea vacío y se le baja el modo ANTES de escribir: acá adentro va el token, el mismo
+# secreto que ~/.config/one-brain/token guarda en 600. Codex crea su config.toml en 600; un
+# temporal con el umask por default (644) haría que el propio comando de conexión deje el token
+# legible para cualquier cuenta de la máquina. El mv le pasa este modo al destino.
+: > "$TMP"
+chmod 600 "$TMP" 2>/dev/null || true
+
+# Borra la sección de one-brain y su subsección de headers: desde el encabezado hasta el
+# próximo encabezado de sección (o el fin del archivo).
+awk -v re="$RE_SECCION" '
+  $0 ~ re { saltando = 1; next }
+  /^[[:space:]]*\[/ { saltando = 0 }
+  !saltando { print }
+' "$CONFIG" > "$TMP"
+
+# Red de último recurso, a propósito MÁS LAXA que el borrado de arriba: si en el archivo ya
+# limpio sigue quedando algo que parezca un encabezado de one-brain, es una forma que no supimos
+# reconocer, y agregar la nuestra dejaría la config duplicada e ilegible. Preferimos no tocar
+# nada y decirlo. (Pide el ']' o el '.' después del nombre, así que un server distinto que
+# empiece igual —[mcp_servers.one-brain-personal]— no dispara la alarma.)
+if grep -Eq "^[[:space:]]*\[[^]]*one-brain[\"']?[[:space:]]*[].]" "$TMP"; then
+  rm -f "$TMP"
+  echo "onebrain-codex-config: $CONFIG ya tiene una sección de one-brain en un formato que no puedo reescribir sin romper la config. No toqué nada: borrá esa sección a mano y volvé a correr esto." >&2
+  exit 3
+fi
+
+[ -s "$TMP" ] && printf '\n' >> "$TMP"
+
+cat >> "$TMP" <<TOML
+[mcp_servers.one-brain]
+url = "$URL"
+enabled = true
+
+[mcp_servers.one-brain.http_headers]
+Authorization = "Bearer $TOKEN"
+TOML
+
+mv "$TMP" "$CONFIG"
+echo "onebrain-codex-config: token escrito en $CONFIG"

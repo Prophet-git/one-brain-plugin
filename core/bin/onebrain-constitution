@@ -1,0 +1,45 @@
+#!/bin/sh
+# Persiste la constitución del equipo en One Brain (requiere ser admin del tenant).
+# Uso: onebrain-constitution set <archivo.md>
+DIR="$HOME/.config/one-brain"
+FILE="$DIR/token"
+URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
+
+# Serializa un archivo de texto a JSON {"content_md": <contenido>} escapando comillas/saltos.
+# No dependemos de un solo binario: jq no está casi nunca en Windows/Git Bash (donde SÍ suele
+# haber perl) ni siempre en Mac; probamos jq → python3 → perl para que el paso más simbólico
+# del onboarding (guardar la primera constitución) no reviente por una herramienta faltante.
+json_encode_file() {
+  if command -v jq >/dev/null 2>&1; then
+    jq -Rs '{content_md: .}' < "$1"
+  elif command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json,sys; sys.stdout.write(json.dumps({"content_md": open(sys.argv[1], encoding="utf-8").read()}))' "$1"
+  elif command -v perl >/dev/null 2>&1; then
+    perl -0777 -MJSON::PP -e 'print JSON::PP->new->encode({content_md => do { local $/; <> }})' < "$1"
+  else
+    return 1
+  fi
+}
+
+case "$1" in
+  set)
+    [ -n "$2" ] || { echo "uso: onebrain-constitution set <archivo.md>" >&2; exit 1; }
+    [ -r "$2" ] || { echo "one-brain: no puedo leer '$2'" >&2; exit 1; }
+    [ -r "$FILE" ] || { echo "sin token. Corré /one-brain:connect <token>." >&2; exit 1; }
+    TOKEN=$(tr -d ' \t\r\n' < "$FILE")
+    BODY=$(json_encode_file "$2") || {
+      echo "one-brain: necesito 'jq', 'python3' o 'perl' para guardar la constitución (no encontré ninguno)." >&2; exit 1;
+    }
+    CODE=$(printf '%s' "$BODY" | curl -s -o /dev/null -w "%{http_code}" -X PUT \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "content-type: application/json" \
+      --data-binary @- \
+      "$URL/api/constitution")
+    case "$CODE" in
+      200) echo "one-brain: constitución guardada." ;;
+      403) echo "one-brain: sólo un admin (dirección) puede editar la constitución." >&2; exit 1 ;;
+      401) echo "one-brain: token inválido o revocado; reconectá con /one-brain:connect." >&2; exit 1 ;;
+      *)   echo "one-brain: falló al guardar ($CODE)." >&2; exit 1 ;;
+    esac ;;
+  *) echo "uso: onebrain-constitution set <archivo.md>" >&2; exit 1 ;;
+esac

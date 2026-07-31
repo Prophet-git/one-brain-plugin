@@ -1,0 +1,168 @@
+#!/usr/bin/env node
+// onebrain-project-push — dejar el proyecto listo para que otro lo retome.
+//
+// Uso: onebrain-project-push <proyecto> [--dir <ruta>] [--env <archivo>]... [--excluir A,B]
+//                            [--descripcion "qué hace"] [--prod <url>] [--roadmap-file <archivo>]
+//
+// Detecta solo el repo, la rama, cómo se levanta y cómo se deploya, PROPONE una descripción
+// sacada del README (propuesta: el server la usa sólo si el proyecto todavía no tiene ninguna),
+// y muestra los NOMBRES de las variables encontradas para que la persona
+// apruebe cuáles suben. Qué es el proyecto, el link a producción y el roadmap son los tres
+// campos que no se pueden adivinar: van por opción. La confirmación es por
+// nombre y nunca por valor: mostrar el secreto en pantalla para confirmarlo sería escribirlo en
+// el transcript justo cuando lo estamos protegiendo.
+
+import { readFileSync, existsSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { nombresDeEnv, leerEnv, parsearArgsPush, descripcionDeReadme, camposDeDescripcion } from "../scripts/project-lib.mjs";
+import { preguntar, esSi } from "../scripts/tty.mjs";
+
+const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
+const ENV_CANDIDATOS = [".env.local", ".env", ".env.production.local"];
+
+function salir(msg, codigo = 1) { console.error(msg); process.exit(codigo); }
+
+function token() {
+  const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
+  if (!existsSync(f)) salir("one-brain: sin token. Corré /one-brain:connect <token>.");
+  return readFileSync(f, "utf8").trim();
+}
+
+/** Igual que en el pull: la confirmación se le pide a la terminal, no a la entrada estándar,
+ *  así el modelo no puede aprobar una subida de credenciales por su cuenta. */
+function confirmarEnTerminal(pregunta) {
+  const r = preguntar(pregunta);
+  if (r === null) salir("one-brain: hace falta una terminal para confirmar qué credenciales se suben.");
+  return esSi(r);
+}
+
+function git(dir, ...args) {
+  try {
+    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+  } catch { return null; }
+}
+
+/** Cómo se deploya, con lo que se pueda leer del repo. Es una PROPUESTA: la persona la corrige
+ *  si está mal. Preferimos ofrecer algo concreto y editable antes que una pregunta abierta que
+ *  nadie contesta al final del día. */
+function detectarDeploy(dir) {
+  const runbook = ["docs/runbooks/deploy.md", "DEPLOY.md"].find((f) => existsSync(join(dir, f)));
+  if (runbook) return `ver ${runbook}`;
+  if (existsSync(join(dir, "vercel.json"))) return "vercel deploy --prod";
+  const pkg = join(dir, "package.json");
+  if (existsSync(pkg)) {
+    try {
+      const scripts = JSON.parse(readFileSync(pkg, "utf8")).scripts || {};
+      if (scripts.deploy) return `npm run deploy`;
+    } catch { /* package.json roto: no es asunto de este comando */ }
+  }
+  return null;
+}
+
+function detectarSetup(dir) {
+  if (existsSync(join(dir, "pnpm-lock.yaml"))) return "pnpm install && pnpm dev";
+  if (existsSync(join(dir, "package-lock.json"))) return "npm install && npm run dev";
+  if (existsSync(join(dir, "requirements.txt"))) return "pip install -r requirements.txt";
+  return null;
+}
+
+const opts = parsearArgsPush(process.argv.slice(2));
+if (!opts.proyecto) {
+  salir("uso: onebrain-project-push <proyecto> [--dir <ruta>] [--env <archivo>] [--excluir A,B]\n" +
+    "                                 [--descripcion \"qué hace\"] [--prod <url>] [--roadmap-file <archivo>]");
+}
+const proyecto = opts.proyecto;
+const dir = resolve(opts.dir || process.cwd());
+const excluidas = new Set(opts.excluir);
+const envPedidos = opts.env;
+
+/** Lo que ya estaba en el README, si el que corre esto no pasó una descripción. Propuesta, no
+ *  dato: viaja en su propio campo y el server la usa SÓLO si el proyecto todavía no tiene
+ *  descripción cargada (ver camposDeDescripcion). Correr este comando para actualizar el repo no
+ *  puede pisarle a nadie lo que escribió. */
+function descripcionPropuesta(dir) {
+  const readme = ["README.md", "readme.md"].find((f) => existsSync(join(dir, f)));
+  return readme ? descripcionDeReadme(readFileSync(join(dir, readme), "utf8")) : null;
+}
+
+/** El roadmap sale de un archivo y no de una opción con el texto adentro: un roadmap tiene
+ *  varias líneas y un argumento multilínea en la terminal se corta o se escapa mal.
+ *
+ *  Sin --roadmap-file no se manda nada, y el perfil conserva el roadmap que ya tuviera: el
+ *  upsert del server es un patch, así que correr este comando para actualizar el repo no borra
+ *  el plan que alguien escribió a mano ni le mueve la fecha. */
+function leerRoadmap(dir, archivo) {
+  if (!archivo) return null;
+  const ruta = resolve(dir, archivo);
+  if (!existsSync(ruta)) salir(`one-brain: no encontré el archivo de roadmap "${archivo}".`);
+  return readFileSync(ruta, "utf8").trim() || null;
+}
+
+const perfil = {
+  ...camposDeDescripcion(opts.descripcion, descripcionPropuesta(dir)),
+  repo_url: git(dir, "remote", "get-url", "origin"),
+  default_branch: git(dir, "rev-parse", "--abbrev-ref", "HEAD"),
+  // No se detecta: vercel.json no la tiene y .vercel/project.json guarda ids, no la URL.
+  prod_url: opts.prod || null,
+  setup_md: detectarSetup(dir),
+  deploy_md: detectarDeploy(dir),
+  roadmap_md: leerRoadmap(dir, opts.roadmapFile),
+};
+
+const archivosEnv = (envPedidos.length ? envPedidos : ENV_CANDIDATOS).filter((f) => existsSync(join(dir, f)));
+
+console.log(`\n  Voy a dejar esto en el cerebro, para ${proyecto}:\n`);
+console.log(`    Repo ......... ${perfil.repo_url || "(no encontré remoto git)"}`);
+console.log(`    Rama ......... ${perfil.default_branch || "?"}`);
+console.log(`    Se levanta ... ${perfil.setup_md || "(no detecté: cargalo después)"}`);
+console.log(`    Se deploya ... ${perfil.deploy_md || "(no detecté: cargalo después)"}`);
+// La propuesta se anuncia distinto del dato a propósito. Quien corre esto tiene que poder saber,
+// ANTES de confirmar, si el texto que ve va a quedar o no: la descripción es lo que se lee en la
+// tab, y la corrida rutinaria no le cambia a nadie la que escribió.
+if (perfil.descripcion) {
+  console.log(`    Qué hace ..... ${perfil.descripcion}`);
+} else if (perfil.descripcion_propuesta) {
+  console.log(`    Qué hace ..... ${perfil.descripcion_propuesta}`);
+  console.log(`                   (propuesta del README: queda sólo si el proyecto todavía no tiene`);
+  console.log(`                    descripción; para cambiar la que ya está, pasá --descripcion)`);
+} else {
+  console.log(`    Qué hace ..... (no detecté: pasalo con --descripcion)`);
+}
+console.log(`    Producción ... ${perfil.prod_url || "(no cargado: pasalo con --prod)"}`);
+console.log(`    Roadmap ...... ${perfil.roadmap_md ? `${perfil.roadmap_md.split("\n").length} líneas` : "(sin cambios)"}`);
+
+const sinPushear = git(dir, "status", "--porcelain");
+if (sinPushear) console.log(`\n    OJO: tenés cambios sin commitear en este repo.`);
+
+const secretos = [];
+for (const archivo of archivosEnv) {
+  const contenido = readFileSync(join(dir, archivo), "utf8");
+  const nombres = nombresDeEnv(contenido).filter((n) => !excluidas.has(n));
+  if (!nombres.length) continue;
+  console.log(`\n    Credenciales en ${archivo} (${nombres.length}):`);
+  for (const n of nombres) console.log(`      ${n}`);
+  const valores = leerEnv(contenido);
+  for (const n of nombres) {
+    secretos.push({ nombre: n, destino_tipo: "env", destino: archivo, valor: valores[n] });
+  }
+}
+
+if (!secretos.length) console.log("\n    (sin credenciales para subir)");
+console.log("\n  Los VALORES no se muestran acá ni viajan por la conversación.");
+
+if (!confirmarEnTerminal("\n  ¿Subo esto al cerebro?")) {
+  salir("\n  Cancelado. No se subió nada.\n", 0);
+}
+
+const res = await fetch(`${URL_BASE}/api/project`, {
+  method: "POST",
+  headers: { authorization: `Bearer ${token()}`, "content-type": "application/json" },
+  body: JSON.stringify({ project: proyecto, profile: perfil, secretos, origen: perfil.repo_url || dir }),
+});
+const cuerpo = await res.json().catch(() => ({}));
+if (!res.ok) salir(`one-brain: ${cuerpo.error || `el server respondió ${res.status}`}`);
+
+console.log(`\n  Listo: ${cuerpo.guardados?.length || 0} credencial(es) y el perfil de ${cuerpo.project?.name}.`);
+console.log(`  Tu compañero lo retoma con: /one-brain:retomar ${cuerpo.project?.slug}\n`);

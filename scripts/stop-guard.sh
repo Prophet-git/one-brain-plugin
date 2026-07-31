@@ -8,14 +8,15 @@ DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # explícito en features.json), salir sin marcar nada. Si el bin no existe o no es
 # ejecutable (instalación rota), NO desactivamos la captura por default — solo
 # salimos cuando el helper responde exit 1 explícito.
-FEATURE_BIN="$DIR/../bin/onebrain-feature"
+FEATURE_BIN="$DIR/../core/bin/onebrain-feature"
 if [ -x "$FEATURE_BIN" ]; then
   "$FEATURE_BIN" auto-capture
   [ "$?" -eq 1 ] && exit 0
 fi
 
-[ -r "$DIR/capture-lib.sh" ] || exit 0
-. "$DIR/capture-lib.sh"
+# La librería compartida vive en core/ (fuente única, copiada acá por scripts/sync-core.sh).
+[ -r "$DIR/../core/scripts/capture-lib.sh" ] || exit 0
+. "$DIR/../core/scripts/capture-lib.sh"
 
 INPUT=$(cat)
 TRANSCRIPT=$(ob_json_field transcript_path "$INPUT")
