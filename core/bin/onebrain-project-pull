@@ -15,7 +15,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, chmodSync } from "n
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, dirname, resolve } from "node:path";
-import { mergeEnv, diasDesde, estaIgnorado, mismoRepo } from "../scripts/project-lib.mjs";
+import { mergeEnv, diasDesde, estaIgnorado, mismoRepo, skillCmd } from "../scripts/project-lib.mjs";
 import { preguntar, esSi } from "../scripts/tty.mjs";
 
 const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
@@ -27,7 +27,7 @@ function salir(msg, codigo = 1) {
 
 function token() {
   const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
-  if (!existsSync(f)) salir("one-brain: sin token. Corré /one-brain:connect <token>.");
+  if (!existsSync(f)) salir(`one-brain: sin token. Conectá con ${skillCmd("connect")} <token>.`);
   return readFileSync(f, "utf8").trim();
 }
 

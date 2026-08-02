@@ -49,24 +49,13 @@ ob_feat_on() {
   ! grep -qE "\"$1\"[[:space:]]*:[[:space:]]*false" "$FFILE" 2>/dev/null
 }
 
-# ob_client_name: cómo se llama, en el idioma del usuario, el programa que hospeda esta sesión.
-# Sale de OB_CLIENT, que ya setean los dos adaptadores para el header x-client.
-#
-# Existe porque el core emite texto que LEE UNA PERSONA, y hasta ahora ese texto tenía el
-# nombre de un solo host escrito a mano — el de Claude Code, que era el único cuando se
-# escribió. En Codex nombraba el programa equivocado justo en el aviso que sale cuando algo se
-# rompió: la persona sale a revisar una instalación que no tiene.
-#
-# El default es "Claude Code" a propósito, y no vacío: hay cuatro instalaciones en producción
-# leyendo ese texto, así que un host que se olvide de setear OB_CLIENT (o un sourceo suelto del
-# core desde un test) tiene que seguir produciendo LA MISMA frase de siempre, no una con un
-# agujero en el medio.
-ob_client_name() {
-  case "$OB_CLIENT" in
-    codex) printf 'Codex' ;;
-    *)     printf 'Claude Code' ;;
-  esac
-}
+# El nombre del programa que hospeda esta sesión lo da ob_host_name (capture-lib): una sola
+# implementación para el arranque, el doctor y los bins. Existe porque el core emite texto que
+# LEE UNA PERSONA, y ese texto tenía el nombre de un solo host escrito a mano — el de Claude
+# Code, que era el único cuando se escribió. En Codex nombraba el programa equivocado justo en
+# el aviso que sale cuando algo se rompió: la persona sale a revisar una instalación que no
+# tiene. El default sigue siendo "Claude Code" y no vacío, porque hay instalaciones en
+# producción leyendo ese texto: mejor la frase de siempre que una con un agujero en el medio.
 
 # --- Ensamblado: helpers ----------------------------------------------------------------------
 ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT$NL$NL$1"; else CONTEXT="$1"; fi; }
@@ -109,7 +98,7 @@ ob_session_start() {
 
   TOKEN_FILE="$HOME/.config/one-brain/token"
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; SAVEBIN=""; TOKENWARN=""; HAS_TOKEN=0
+  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
   if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
     HAS_TOKEN=1
     TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
@@ -204,6 +193,19 @@ ob_session_start() {
     esac
 
     rm -rf "$OB_TMP" 2>/dev/null
+  else
+    # SIN TOKEN: el arranque no puede quedarse mudo.
+    #
+    # Hasta acá, una instalación sin conectar salía sin emitir una sola línea, que desde afuera
+    # es indistinguible de no tener el plugin instalado. Y es el estado por el que pasa TODO el
+    # que se da de alta: instaló el paquete, se le fue el día, y en la próxima sesión no hay
+    # nada que le recuerde el paso que falta. Lo que concluye no es "me falta conectar", es
+    # "esto no funciona" — es el punto donde se pierde a alguien que ya hizo casi todo.
+    #
+    # El comando lo resuelve ob_skill_cmd, que sabe en qué programa corre: mandar a la slash
+    # command del otro asistente sería, en el único aviso que esta persona va a leer, decirle
+    # que tipee algo que su programa ignora.
+    NOTOKEN="One Brain está instalado en esta máquina pero todavía no está conectado: te falta conectar tu token. Decíselo al usuario con estas palabras y ofrecele hacerlo ahora con $(ob_skill_cmd connect) <su token> — el token se lo da quien le dio acceso al cerebro, o lo saca del panel de One Brain. Mientras tanto no hay contexto del equipo ni se guarda nada de lo que trabaje."
   fi
 
   # Segundo gate, ahora sobre el contenido: el de arriba evitó la llamada, éste evita mostrarlo
@@ -249,13 +251,13 @@ ob_session_start() {
   # Aviso de captura degradada (Capa 3): si el self-test falló, la captura automática NO va a
   # funcionar en este entorno. Se avisa arriba de todo, es lo más urgente.
   #
-  # El nombre del programa sale de ob_client_name (OB_CLIENT, lo pone el adaptador): este texto
+  # El nombre del programa sale de ob_host_name: este texto
   # es lo primero que lee alguien que ya sabe que algo no anda, y nombrarle el programa
   # equivocado justo ahí lo manda a buscar el problema donde no está. El default conserva el
   # texto histórico, palabra por palabra, para las instalaciones que ya están en producción.
   HOOKWARN=""
   if [ "$HOOK_OK" != "1" ]; then
-    HOOKWARN="⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de $(ob_client_name) (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario."
+    HOOKWARN="⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de $(ob_host_name) (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario."
   fi
 
   # --- Ensamblado -------------------------------------------------------------------------
@@ -288,6 +290,7 @@ ob_session_start() {
   OB_BLOCK=""     # salida de ob_clip_block: el bloque ya recortado
 
   # --- Primero lo que no puede perderse: avisos operativos e instrucciones (todos cortos) ---
+  ob_append "$NOTOKEN"                   # nunca se conectó: sin esto el arranque es mudo
   ob_append "$TOKENWARN"                 # token vencido: sin esto nada funciona
   ob_append "$HOOKWARN"                  # captura rota en este entorno
   ob_append "$UPDATEWARN"                # plugin viejo: los arreglos viajan en la versión

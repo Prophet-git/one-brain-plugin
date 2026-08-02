@@ -9,9 +9,10 @@ Reportás si esta máquina está conectada a One Brain y, si algo falla, el pró
 
 ## Qué hacés
 
-1. **Token configurado.** Corré en Bash: `onebrain-token get`. El ejecutable ya está en el PATH del plugin y lee `~/.config/one-brain/token`.
-   - Si imprime el token → hay token guardado. **Nunca lo muestres en pantalla ni lo repitas**, solo confirmá que existe.
-   - Si sale "sin token" (o exit ≠ 0) → NO hay token. Saltá al reporte: "no conectado, falta el token".
+1. **Token configurado.** Corré en Bash: `onebrain-token check`. El ejecutable ya está en el PATH del plugin y responde si hay token en `~/.config/one-brain/token` **sin imprimirlo**.
+   - "hay token guardado" → está conectado.
+   - "sin token" (o exit ≠ 0) → NO hay token. Saltá al reporte: "no conectado, falta el token".
+   - Es `check` y no `get` a propósito: `get` imprime la credencial en claro y todo lo que sale por pantalla queda escrito en el transcript de esta sesión. Para saber si hay token no hace falta verlo.
 
 2. **El conector responde.** Solo si hay token, corré: `onebrain-token verify`. Hace un `tools/list` contra el endpoint MCP y espera HTTP 200.
    - "conexión OK" → el conector responde.
@@ -31,5 +32,5 @@ Decile al usuario:
   - Todo OK pero las tools MCP no aparecen → "reiniciá la sesión (o `/reload-plugins`) para que el MCP tome el token".
 
 ## Reglas
-- No inventes: el estado que reportás sale de lo que devuelven `onebrain-token get` y `verify`, nada más.
+- No inventes: el estado que reportás sale de lo que devuelven `onebrain-token check` y `verify`, nada más.
 - Nunca imprimas el token en claro.

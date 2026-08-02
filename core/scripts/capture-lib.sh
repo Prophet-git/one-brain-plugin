@@ -1,6 +1,62 @@
 #!/bin/sh
 # Funciones puras de captura, compartidas por stop-guard.sh y los tests.
 
+# ob_host — en qué programa corre esta copia del core: "codex" | "claude".
+#
+# El core es UNO y se vendoriza dentro de cada paquete, así que un mensaje suyo no puede
+# nombrar el comando de un programa en particular: el mismo texto lo lee gente que usa Codex y
+# gente que usa el otro asistente, y el comando de barra sólo existe en uno de los dos.
+#
+# Se detecta por el manifest del paquete que CONTIENE a esta copia, subiendo por los padres
+# desde el script que está corriendo. Sirve para los dos casos de uso sin configurar nada:
+#   - un bin (`core/bin/onebrain-token`): $0 es el bin, el paquete está dos niveles arriba;
+#   - una lib cargada con `.` desde un adaptador: $0 es el script del adaptador, que también
+#     vive adentro del paquete.
+# Deliberadamente NO depende de una variable de entorno: un bin que necesita que alguien le
+# avise dónde está es un bin que en la máquina del cliente le va a mentir a la persona.
+# ONE_BRAIN_HOST existe sólo para que los tests puedan pedir un host concreto.
+ob_host() {
+  [ -n "$ONE_BRAIN_HOST" ] && { printf '%s' "$ONE_BRAIN_HOST"; return; }
+  _obh=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || _obh=$(pwd)
+  while [ -n "$_obh" ]; do
+    [ -d "$_obh/.codex-plugin" ] && { printf 'codex'; return; }
+    [ -d "$_obh/.claude-plugin" ] && { printf 'claude'; return; }
+    # Se corta cuando el padre deja de cambiar, y no comparando contra "/": es la misma guarda
+    # que la gemela en project-lib.mjs. Con una ruta rara (relativa, vacía) dirname devuelve "."
+    # para siempre, y un `while` que sólo mira "/" no sale nunca — un cuelgue del arranque, que
+    # es el peor lugar para uno.
+    _obp=$(dirname "$_obh")
+    [ "$_obp" = "$_obh" ] && break
+    _obh="$_obp"
+  done
+  # Sin manifest alrededor (el repo en desarrollo, un bin copiado suelto): el default es el
+  # paquete histórico, que es donde están todos los clientes de hoy.
+  printf 'claude'
+}
+
+# ob_skill_cmd <skill> — cómo se le dice a la persona que use una skill de One Brain, en el
+# programa donde efectivamente está. En Claude Code hay slash commands; en Codex no existen:
+# las skills se nombran `one-brain:<skill>` y se activan pidiéndolas. Mandar a tipear la forma
+# equivocada no da error — deja a la persona probando un comando que el programa ignora, justo
+# cuando algo ya andaba mal.
+ob_skill_cmd() {
+  case "$(ob_host)" in
+    codex) printf 'la skill one-brain:%s' "$1" ;;
+    *) printf '/one-brain:%s' "$1" ;; # ob:forma-claude
+  esac
+}
+
+# ob_host_name — cómo se llama este programa cuando hay que nombrárselo a la persona.
+# Fuente única del nombre: si el adaptador ya declaró cuál es ($OB_CLIENT), manda eso; si no
+# —el caso de los bins, que corren sueltos— se deduce del paquete. Tener dos listas de nombres
+# es cómo un texto termina diciendo "Claude Code" en una máquina que sólo tiene Codex.
+ob_host_name() {
+  case "${OB_CLIENT:-$(ob_host)}" in
+    codex) printf 'Codex' ;;
+    *)     printf 'Claude Code' ;;
+  esac
+}
+
 # ob_pending_dir: markers de captura. Carpeta ESTABLE (sobrevive reinicios). Antes usaba
 # ${CLAUDE_PLUGIN_DATA:-/tmp}: /tmp se limpia al reiniciar → se perdían pendientes.
 ob_pending_dir() {
@@ -324,7 +380,7 @@ ob_should_renag() { { [ "$1" -gt 0 ] && [ $(( $1 % 5 )) -eq 0 ]; } && printf 1 |
 # ob_token_warning <http-code>: aviso fuerte si el token está vencido/inválido (401/403).
 ob_token_warning() {
   case "$1" in
-    401|403) printf '⚠️ One Brain: tu token venció o no es válido (el server respondió %s). No se está guardando ni trayendo contexto: reconecta con /one-brain:connect <token>. Avisale al usuario.' "$1" ;;
+    401|403) printf '⚠️ One Brain: tu token venció o no es válido (el server respondió %s). No se está guardando ni trayendo contexto: reconectá con %s <token>. Avisale al usuario.' "$1" "$(ob_skill_cmd connect)" ;;
   esac
 }
 

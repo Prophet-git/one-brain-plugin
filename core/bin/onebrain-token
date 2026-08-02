@@ -19,6 +19,17 @@ case "$1" in
     echo "one-brain: token guardado en $FILE" ;;
   get)
     [ -r "$FILE" ] && cat "$FILE" || { echo "sin token" >&2; exit 1; } ;;
+  check)
+    # Responde SI HAY token, sin revelarlo. Existe porque `get` lo imprime en claro, y cuando
+    # una skill le pide al modelo que lo corra sólo para saber si está conectado, la credencial
+    # queda escrita en el registro local de la sesión (el rollout de Codex, el transcript del
+    # otro programa) en texto plano y para siempre. Decirle al modelo "no lo muestres" no
+    # alcanza: para cuando lee esa orden, el token ya salió por pantalla y ya quedó guardado.
+    # `get` se conserva para lo que de verdad necesita el valor (mandarlo en un header).
+    [ -r "$FILE" ] || { echo "one-brain: sin token en $FILE" >&2; exit 1; }
+    N=$(tr -d ' \t\r\n' < "$FILE" | wc -c | tr -d ' ')
+    [ "$N" -ge 10 ] || { echo "one-brain: el token guardado está vacío o truncado ($N caracteres)" >&2; exit 1; }
+    echo "one-brain: hay token guardado en $FILE ($N caracteres)" ;;
   verify)
     [ -r "$FILE" ] || { echo "sin token" >&2; exit 1; }
     TOKEN=$(tr -d ' \t\r\n' < "$FILE")
@@ -29,5 +40,5 @@ case "$1" in
       -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
       "$URL/api/mcp")
     [ "$CODE" = "200" ] && echo "one-brain: conexión OK" || { echo "one-brain: falló ($CODE)" >&2; exit 1; } ;;
-  *) echo "uso: onebrain-token set|get|verify" >&2; exit 1 ;;
+  *) echo "uso: onebrain-token set|check|get|verify" >&2; exit 1 ;;
 esac

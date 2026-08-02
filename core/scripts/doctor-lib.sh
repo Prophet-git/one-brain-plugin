@@ -12,7 +12,7 @@ ob_doc_token_file() { printf '%s' "${ONE_BRAIN_TOKEN_FILE:-$HOME/.config/one-bra
 ob_doc_token() {
   f=$(ob_doc_token_file)
   if [ ! -e "$f" ]; then
-    printf 'token|falla|no hay token en %s — corré /one-brain:connect <token>\n' "$f"; return
+    printf 'token|falla|no hay token en %s — conectá con %s <token>\n' "$f" "$(ob_skill_cmd connect)"; return
   fi
   if [ ! -r "$f" ]; then
     printf 'token|falla|el archivo %s existe pero no se puede leer (permisos)\n' "$f"; return
@@ -37,20 +37,49 @@ ob_doc_dependencias() {
 # fallara en silencio cuando Claude Code pasó a mandar el JSON pretty-printed.
 ob_doc_parser() {
   if [ "$(ob_selftest)" = "1" ]; then
-    printf 'parser|ok|el hook puede leer el input de Claude Code\n'
+    printf 'parser|ok|el hook puede leer el input de %s\n' "$(ob_host_name)"
   else
     printf 'parser|falla|el hook NO puede leer el input en este entorno: la captura automática no va a andar\n'
   fi
 }
 
-# ¿Los hooks están apagados a nivel Claude Code? Con disableAllHooks en true el plugin queda
-# mudo aunque todo lo demás esté perfecto — y no hay ninguna señal visible de eso.
+# ¿Los avisos del plugin pueden correr en esta máquina? Cada programa lo apaga a su manera, y
+# las dos formas dejan al producto mudo sin una sola señal visible. Preguntar por la del OTRO
+# programa no es inofensivo: devuelve `ok` sin haber mirado nada, o sea que tranquiliza sobre
+# justo lo que estaba fallando.
 ob_doc_hooks_activos() {
+  if [ "$(ob_host)" = "codex" ]; then ob_doc_hooks_codex; else ob_doc_hooks_claude; fi
+}
+
+# Claude Code: la perilla `disableAllHooks`. Con eso en true el plugin queda mudo aunque todo lo
+# demás esté perfecto.
+ob_doc_hooks_claude() {
   s="${CLAUDE_SETTINGS_FILE:-$HOME/.claude/settings.json}"
   if [ -r "$s" ] && grep -q '"disableAllHooks"[[:space:]]*:[[:space:]]*true' "$s" 2>/dev/null; then
     printf 'hooks|falla|disableAllHooks está en true en %s: el plugin no captura nada\n' "$s"
   else
     printf 'hooks|ok|los hooks de Claude Code están habilitados\n'
+  fi
+}
+
+# Codex: la CONFIANZA. Un aviso recién instalado nace sin aprobar y no se ejecuta, aunque el
+# plugin figure instalado y activo (medido con codex 0.136; el flag para saltearlo no funciona).
+# Y como la aprobación está atada al contenido exacto del hooks.json, cada actualización nuestra
+# que lo toque vuelve a pedirla: es el modo de falla más común de este programa y el más mudo.
+#
+# El chequeo es deliberadamente laxo —busca que exista algún estado de hooks aprobado para
+# one-brain— y ante la duda avisa en vez de fallar: la forma exacta de la clave la elige Codex,
+# y preferimos una línea que diga "revisá esto" a uno que declare rota una instalación sana.
+ob_doc_hooks_codex() {
+  c="${CODEX_CONFIG_FILE:-${CODEX_HOME:-$HOME/.codex}/config.toml}"
+  if [ ! -r "$c" ]; then
+    printf 'hooks|aviso|no encontré la configuración de Codex en %s: si al arrancar no ves el contexto de tu equipo, reiniciá Codex y aprobá los avisos de One Brain cuando te los pregunte\n' "$c"
+    return
+  fi
+  if grep -q 'hooks\.state' "$c" 2>/dev/null && grep -qi 'one-brain' "$c" 2>/dev/null; then
+    printf 'hooks|ok|los avisos de One Brain están aprobados en %s\n' "$c"
+  else
+    printf 'hooks|aviso|no figura que hayas aprobado los avisos de One Brain en %s. Sin esa aprobación no se ejecutan (aunque el plugin figure instalado): reiniciá Codex y aceptá cuando te los pregunte. Vuelve a preguntarte después de cada actualización que los toque\n' "$c"
   fi
 }
 
@@ -65,17 +94,25 @@ ob_doc_reglas_en() { # <archivo>
   return 0
 }
 
-# El CLAUDE.md con reglas de One Brain más cercano al directorio donde se está trabajando,
-# subiendo por los padres. Claude Code carga el CLAUDE.md del directorio en el que se abrió y
-# también los de arriba, así que un cerebro configurado en la carpeta madre igual aplica.
+# Cómo se llama, en ESTE programa, el archivo donde viven las reglas de la carpeta. Los dos
+# cargan el del directorio donde se abrió y también los de arriba, pero con distinto nombre:
+# preguntar por el del otro programa reporta como problema una instalación sana, y encima manda
+# a crear un archivo que ahí no hace nada.
+ob_doc_reglas_archivo() {
+  if [ "$(ob_host)" = "codex" ]; then printf 'AGENTS.md'; else printf 'CLAUDE.md'; fi
+}
+
+# El archivo de reglas con las de One Brain más cercano al directorio donde se está trabajando,
+# subiendo por los padres. Un cerebro configurado en la carpeta madre igual aplica.
 # Imprime la ruta y sale 0; si no hay ninguno, no imprime nada y sale 1.
 ob_doc_claudemd_cerca() { # [directorio inicial; default el actual]
   # `pwd` (builtin) y no $PWD: el hook puede haber sido invocado con un PWD heredado que ya no
   # es el directorio real, y acá el directorio real es justamente el dato.
   ob_d=${1:-$(pwd)}
+  ob_arch=$(ob_doc_reglas_archivo)
   case "$ob_d" in /*) ;; *) ob_d=$(pwd) ;; esac
   while :; do
-    if ob_doc_reglas_en "$ob_d/CLAUDE.md"; then printf '%s/CLAUDE.md' "$ob_d"; return 0; fi
+    if ob_doc_reglas_en "$ob_d/$ob_arch"; then printf '%s/%s' "$ob_d" "$ob_arch"; return 0; fi
     [ "$ob_d" = "/" ] && break
     ob_d=$(dirname "$ob_d")
   done
@@ -93,17 +130,18 @@ ob_doc_claudemd_cerca() { # [directorio inicial; default el actual]
 # que justamente no puede correr. Por eso se mira PRIMERO dónde está parada la sesión.
 ob_doc_carpeta() {
   d="${ONE_BRAIN_DIR:-$HOME/Documents/one-brain}"
+  arch=$(ob_doc_reglas_archivo)
   if aqui=$(ob_doc_claudemd_cerca); then
     printf 'carpeta|ok|las reglas de One Brain están en %s\n' "$aqui"; return
   fi
-  if [ -r "$d/CLAUDE.md" ]; then
-    printf 'carpeta|ok|%s con su CLAUDE.md\n' "$d"; return
+  if [ -r "$d/$arch" ]; then
+    printf 'carpeta|ok|%s con su %s\n' "$d" "$arch"; return
   fi
   if [ -d "$d" ]; then
-    printf 'carpeta|aviso|%s existe pero no tiene CLAUDE.md, y en esta carpeta tampoco hay reglas de One Brain\n' "$d"
+    printf 'carpeta|aviso|%s existe pero no tiene %s, y en esta carpeta tampoco hay reglas de One Brain\n' "$d" "$arch"
     return
   fi
-  printf 'carpeta|aviso|no hay un CLAUDE.md con las reglas de One Brain en esta carpeta (ni en %s)\n' "$d"
+  printf 'carpeta|aviso|no hay un %s con las reglas de One Brain en esta carpeta (ni en %s)\n' "$arch" "$d"
 }
 
 # ¿El cerebro responde con este token? Un tools/list contra el endpoint MCP.
@@ -135,7 +173,7 @@ ob_doc_conexion() {
   fi
   case "$code" in
     200) printf 'conexion|ok|el cerebro responde en %s\n' "$url" ;;
-    401|403) printf 'conexion|falla|el cerebro rechazó el token (HTTP %s): pedí uno nuevo y corré /one-brain:connect\n' "$code" ;;
+    401|403) printf 'conexion|falla|el cerebro rechazó el token (HTTP %s): pedí uno nuevo y conectá con %s\n' "$code" "$(ob_skill_cmd connect)" ;;
     000) printf 'conexion|falla|no hubo respuesta (sin red, VPN o el server caído)\n' ;;
     *) printf 'conexion|falla|el cerebro respondió HTTP %s\n' "$code" ;;
   esac
@@ -172,6 +210,14 @@ ob_doc_version_instalada() {
 
 ob_doc_version() { # <root del plugin que se está ejecutando>
   ob_corre=$(ob_doc_version_dir "$1")
+  # El registro de versión instalada es de Claude Code. En Codex no existe ese archivo, así que
+  # la comparación "instalada vs corriendo" no se puede hacer: se informa la que corre y listo.
+  # Antes se consultaba igual, y el registro del OTRO programa —si esa máquina tenía los dos—
+  # podía contradecir a esta sesión y mandar a reiniciar un programa que no era el suyo.
+  if [ "$(ob_host)" = "codex" ]; then
+    [ -n "$ob_corre" ] && printf 'version|ok|paquete %s\n' "$ob_corre"
+    return
+  fi
   ob_inst=$(ob_doc_version_instalada)
   if [ -n "$ob_inst" ] && [ -n "$ob_corre" ] && [ "$ob_inst" != "$ob_corre" ]; then
     printf 'version|aviso|tenés instalada la %s pero esta sesión está corriendo la %s: reiniciá Claude Code para que tome la nueva\n' \

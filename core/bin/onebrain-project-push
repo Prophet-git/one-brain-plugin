@@ -16,7 +16,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { nombresDeEnv, leerEnv, parsearArgsPush, descripcionDeReadme, camposDeDescripcion } from "../scripts/project-lib.mjs";
+import { nombresDeEnv, leerEnv, parsearArgsPush, descripcionDeReadme, camposDeDescripcion, skillCmd } from "../scripts/project-lib.mjs";
 import { preguntar, esSi } from "../scripts/tty.mjs";
 
 const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
@@ -26,7 +26,7 @@ function salir(msg, codigo = 1) { console.error(msg); process.exit(codigo); }
 
 function token() {
   const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
-  if (!existsSync(f)) salir("one-brain: sin token. Corré /one-brain:connect <token>.");
+  if (!existsSync(f)) salir(`one-brain: sin token. Conectá con ${skillCmd("connect")} <token>.`);
   return readFileSync(f, "utf8").trim();
 }
 
@@ -165,4 +165,4 @@ const cuerpo = await res.json().catch(() => ({}));
 if (!res.ok) salir(`one-brain: ${cuerpo.error || `el server respondió ${res.status}`}`);
 
 console.log(`\n  Listo: ${cuerpo.guardados?.length || 0} credencial(es) y el perfil de ${cuerpo.project?.name}.`);
-console.log(`  Tu compañero lo retoma con: /one-brain:retomar ${cuerpo.project?.slug}\n`);
+console.log(`  Tu compañero lo retoma con: ${skillCmd("retomar")} ${cuerpo.project?.slug}\n`);

@@ -2,6 +2,35 @@
 // para poder testearla: mezclar un archivo de entorno ajeno y decidir si una credencial está
 // vencida son justo las cosas que no se pueden "probar a mano" sin arriesgar el .env de alguien.
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+
+/** En qué programa corre esta copia del core: "codex" | "claude".
+ *
+ *  Gemela de `ob_host` en capture-lib.sh, con el mismo criterio: se mira el manifest del
+ *  paquete que contiene a este archivo, subiendo por los padres. El core es uno solo y se
+ *  vendoriza adentro de cada paquete, así que un mensaje suyo no puede nombrar el comando de
+ *  un programa: el mismo texto lo leen los dos. */
+export function host(desde = import.meta.dirname) {
+  let d = desde;
+  for (;;) {
+    if (existsSync(join(d, ".codex-plugin"))) return "codex";
+    if (existsSync(join(d, ".claude-plugin"))) return "claude";
+    const padre = dirname(d);
+    if (padre === d) break;
+    d = padre;
+  }
+  return "claude";
+}
+
+/** Cómo se le dice a la persona que use una skill de One Brain, en SU programa. En Claude Code
+ *  hay slash commands; en Codex no existen y mandar a tipear una deja a la persona probando
+ *  algo que el programa ignora. */
+export function skillCmd(skill) {
+  return host() === "codex" ? `la skill one-brain:${skill}` : `/one-brain:${skill}`; // ob:forma-claude
+}
+
 /** Mezcla variables nuevas dentro del contenido de un .env EXISTENTE.
  *
  *  Nunca pisa el archivo entero: reemplaza la línea de cada variable que ya estaba y agrega al
