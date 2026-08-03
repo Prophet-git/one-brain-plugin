@@ -14,16 +14,25 @@ la mayoría de lo que se sube no genera ninguna memoria, y está bien que así s
    CUESTA) y `tokens_texto` (lo que PESA el texto, que es otra cosa).
 2. Decile el número de `tokens_estimados` y **esperá que confirme**:
 
-   > Tenés 3 documentos sin estudiar. El texto en sí es poco (~5.000 tokens), pero procesarlos
-   > cuesta bastante más: del orden de 400.000 tokens por documento, o sea 1,2 millones en
-   > total, de la misma cuota que usás en claude.ai y en Cowork. ¿Arranco, o querés que haga
-   > uno solo para ver qué sale?
+   > Tenés 3 documentos sin estudiar. Leerlos con criterio lleva un par de minutos cada uno y
+   > consume de la misma cuota que usás en claude.ai y en Cowork. ¿Arranco con los tres, o
+   > preferís que haga uno primero y ves qué sale?
 
-   **El número que se dice es el de procesar, NO el del texto.** Medido el 2-ago-2026 sobre una
-   corrida real: tres documentos costaron 1.243.000 tokens equivalentes, 414.000 cada uno, en 20
-   a 30 llamadas al modelo por documento. La fórmula vieja anunciaba 4.900 para los tres: erraba
-   por 250 veces. Un aviso que subestima así es peor que no avisar, porque da falsa tranquilidad
-   sobre un cupo que es uno solo y compartido entre Claude Code, claude.ai y Cowork.
+   **NUNCA le tires la cantidad de tokens.** Decisión de Bauti (2-ago-2026): a un cliente
+   "220.000 tokens" no le dice nada, suena carísimo y la respuesta natural es que no —
+   información en un idioma que no habla. Lo que sí entiende es el tiempo y la opción de
+   arrancar de a poco. El número está en `tokens_estimados` por si alguien lo PIDE; ahí se lo
+   das, no antes.
+
+   **Para qué sigue existiendo el aviso, entonces:** el cupo es uno solo y compartido entre
+   Claude Code, claude.ai y Cowork. Alguien que larga veinte documentos sin saber que es una
+   tarea larga se queda sin cuota a media tarde y no entiende por qué. Avisar el tamaño de lo
+   que va a pasar y ofrecer hacerlo por tandas lo cubre igual, sin números que asustan.
+
+   **NO REPORTES EL CONTADOR QUE VES EN PANTALLA si te preguntan el gasto.** En la corrida del
+   2-ago el agente informó "63k y 64k" cuando el costo real era 219.000 por documento: ese
+   contador no incluye las lecturas de caché y da unas 3,5 veces menos. El número real sale de
+   sumar `message.usage` en los transcripts de los subagentes.
 
    **El tamaño del documento casi no influye:** en esa corrida, el de 11.000 caracteres costó lo
    mismo que el de 3.500. Lo que manda son los pasos y el contexto que se arrastra en cada uno.
