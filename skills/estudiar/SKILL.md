@@ -10,16 +10,25 @@ la mayoría de lo que se sube no genera ninguna memoria, y está bien que así s
 
 ## Antes de tocar nada: decí lo que va a costar
 
-1. `brain_material({})` para ver qué hay pendiente. Trae la lista y `tokens_estimados`.
-2. Decíselo al usuario en una línea y **esperá que confirme**:
+1. `brain_material({})` para ver qué hay pendiente. Trae la lista, `tokens_estimados` (lo que
+   CUESTA) y `tokens_texto` (lo que PESA el texto, que es otra cosa).
+2. Decile el número de `tokens_estimados` y **esperá que confirme**:
 
-   > Tenés 12 documentos sin estudiar (~380.000 caracteres, del orden de 110.000 tokens de
-   > entrada). Sale de la misma cuota que usás en claude.ai y en Cowork. ¿Arranco?
+   > Tenés 3 documentos sin estudiar. El texto en sí es poco (~5.000 tokens), pero procesarlos
+   > cuesta bastante más: del orden de 400.000 tokens por documento, o sea 1,2 millones en
+   > total, de la misma cuota que usás en claude.ai y en Cowork. ¿Arranco, o querés que haga
+   > uno solo para ver qué sale?
 
-   **Por qué esto no se saltea:** el cupo es uno solo y compartido entre los tres. Alguien que
-   arranca esto sin saberlo se queda sin cuota a media tarde y no entiende por qué.
-3. Si son más de cuatro, ofrecé empezar por una tanda y seguir después. Nadie tiene que elegir
-   entre "todo" y "nada".
+   **El número que se dice es el de procesar, NO el del texto.** Medido el 2-ago-2026 sobre una
+   corrida real: tres documentos costaron 1.243.000 tokens equivalentes, 414.000 cada uno, en 20
+   a 30 llamadas al modelo por documento. La fórmula vieja anunciaba 4.900 para los tres: erraba
+   por 250 veces. Un aviso que subestima así es peor que no avisar, porque da falsa tranquilidad
+   sobre un cupo que es uno solo y compartido entre Claude Code, claude.ai y Cowork.
+
+   **El tamaño del documento casi no influye:** en esa corrida, el de 11.000 caracteres costó lo
+   mismo que el de 3.500. Lo que manda son los pasos y el contexto que se arrastra en cada uno.
+3. **Con más de dos o tres, ofrecé arrancar por uno.** A este costo, una tanda de veinte
+   documentos es una sesión entera de cuota. Nadie tiene que elegir entre "todo" y "nada".
 
 ## Cómo se procesa: un documento por subagente, en tandas de a cuatro
 
@@ -39,20 +48,37 @@ Dos razones, y las dos importan:
 corren a la vez sobre documentos del mismo tema, ninguno ve las memorias del otro y quedan dos
 memorias casi iguales — justo lo que las reglas de similitud existen para evitar.
 
+**EL SUBAGENTE TIENE QUE HACER POCOS TURNOS, y esto no es una preferencia de estilo.** Medido
+el 2-ago-2026: cada turno del subagente reenvía todo su contexto —incluidos ~64.000 caracteres
+de catálogo de herramientas y skills que hereda de la sesión y no usa— así que el costo es
+`contexto × turnos`. Un documento en 30 turnos costó 414.000 tokens; el mismo trabajo en 6
+cuesta una fracción. El documento en sí son 1.100 tokens: nunca fue el problema.
+
+Por eso `brain_material` ya te devuelve **`parecidas`**: lo que el cerebro tiene sobre ese tema,
+buscado por el servidor con el vector del documento entero. No salgas a buscar tema por tema.
+
 Prompt para cada subagente:
 
-> Sos parte de One Brain, el cerebro de la empresa. Incorporá UN documento.
-> 1. `brain_material({id: "<ID>"})`. Si `hay_mas` es `true`, seguí con
+> Sos parte de One Brain, el cerebro de la empresa. Incorporá UN documento, en la MENOR
+> cantidad de pasos posible.
+> 1. `brain_material({id: "<ID>"})`. Te devuelve el texto y `parecidas`: lo que el cerebro ya
+>    tiene sobre este tema. Si `hay_mas` es `true`, seguí con
 >    `brain_material({id, desde: siguiente_desde})` hasta el final. No decidas nada con el
 >    documento a medias.
-> 2. Por cada cosa que parezca memoria, `brain_search` con sus términos y aplicá las reglas de
->    similitud: <pegar acá la tabla de la sección siguiente>.
-> 3. Guardá con `brain_save` sólo decisiones, acuerdos, reglas del negocio o aprendizajes que
->    le sirvan a alguien que no leyó el documento. Citá el nombre del documento en el cuerpo.
+> 2. Leé el documento entero y decidí TODO de una: por cada cosa que sea una decisión, un
+>    acuerdo, una regla del negocio o un aprendizaje, mirá `parecidas` y aplicá las reglas de
+>    similitud: <pegar acá la tabla de la sección siguiente>. Usá `brain_search` SOLO si te
+>    queda una duda puntual que `parecidas` no responde — no como paso obligatorio.
+> 3. Guardá las memorias que decidiste, una tras otra, sin volver a analizar entre medio. Citá
+>    el nombre del documento en el cuerpo.
 > 4. Cerrá con `brain_material({id, cerrar: "amasado", memorias: N})`, o con
 >    `cerrar: "descartado"` si era papeleo.
 > Devolvé un solo renglón: nombre del documento, cuántas memorias guardaste, cuántas
 > reemplazaron a otra, y qué descartaste y por qué.
+
+**Dónde conviene correr esto:** en una sesión con pocos MCP servers y skills cargados. El
+catálogo que el subagente hereda sale de la sesión que lo despacha, no de One Brain: la misma
+tarea en un proyecto liviano cuesta bastante menos que en uno con quince conectores prendidos.
 
 Si el documento es puro papeleo —una factura, un remito, una versión vieja de algo que ya
 está— se cierra con `cerrar: "descartado"` y se sigue. No se inventa una memoria para
