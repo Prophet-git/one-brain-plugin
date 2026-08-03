@@ -33,6 +33,37 @@ trabajo ni decidir de nuevo:
 - pasos intermedios de algo que todavía no cerró — para eso está la skill `handoff`;
 - reformulaciones de una entrada que ya existe.
 
+### Además: los procedimientos (cómo se hace algo acá)
+
+Hay un tipo de memoria con **su propio disparador**, distinto del criterio de arriba:
+`procedimiento`. Guarda **cómo se OPERA el negocio** — pasos concretos, reproducibles, que le
+sirven a otro:
+
+> "Despausar el Supabase de Lempriere: entrar con bautista@prophet.lat, proyecto
+> qvdylrsneoaokxkbgibf, botón Restore, esperar ~2 min. Se pausa solo a los ~7 días sin uso."
+
+> "Deploy de PEM: `vercel --prod --scope winlabai --token=…`. Un git push NO deploya."
+
+**Proponé uno cuando en la sesión algo COSTÓ y TERMINÓ FUNCIONANDO:** hubo más de un intento, o
+hubo que averiguar algo que no estaba escrito, y el resultado se verificó. El intento que
+primero falló es la señal de más valor que deja una sesión. **Si salió a la primera y era
+obvio, no va.**
+
+No entra acá: buenas prácticas de cómo trabajar con Claude (mezclan dos audiencias en la misma
+búsqueda), lo que ya está escrito en el repo o en un README (la memoria apunta, no copia), ni
+lo específico de una sesión que no se va a repetir.
+
+Una idea por memoria, como siempre: "desplegar Lempriere" y "despausar su Supabase" son dos
+procedimientos, no uno.
+
+**Antes de guardarlo, buscá con `brain_search`**: si ya hay un procedimiento para lo mismo, va
+`--supersedes <id-del-viejo>` en vez de una memoria nueva. Dos runbooks del mismo trámite
+conviviendo es peor que uno desactualizado, porque nadie sabe cuál seguir.
+
+Se guarda igual que el resto, con `--type procedimiento`:
+
+`onebrain-save --type procedimiento --title "Despausar el Supabase de Lempriere" --content "1. …" --entities "Lempriere"`
+
 Prueba rápida antes de proponer: **si dentro de dos semanas nadie la buscaría, no va.** Ante
 la duda, no la guardes y decilo: es más barato perder una nota menor que ensuciar la memoria.
 
@@ -65,7 +96,8 @@ Si el usuario descarta, no guardes ni insistas.
    (el usuario desactivó "Captura automática" al cerrar sesión), NO hagas nada: terminá en silencio.
 1. Destilá los **avances y decisiones reales** de la sesión (o del transcript indicado). No trivialidades, no cada comando: lo que tenga señal.
 2. Para cada uno, armá un entry siguiendo el patrón de `brain_save`:
-   - `type`: avance | decision | conocimiento | evento | handoff
+   - `type`: avance | decision | conocimiento | evento | handoff | procedimiento (ver más arriba,
+     tiene su propio disparador)
    - `title` (3-200), `content_md` (resumen autocontenido, 2-10 líneas)
    - `entities`: clientes/proyectos/personas/temas tocados
    - `level`: por defecto tu nivel; ofrecé cambiarlo si es sensible
