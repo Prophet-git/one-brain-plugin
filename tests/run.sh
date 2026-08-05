@@ -39,8 +39,11 @@ assert_eq "Bash 'cat .../onebrain-save' (sin flags) NO resetea => 1" 1 "$(ob_has
 assert_eq "Bash 'onebrain-save --type ...' (uso real) SÍ resetea => 0" 0 "$(ob_has_unsaved_work "$FIX/saved-via-bin.jsonl")"
 
 # --- ob_token_warning: fail-loud si el token venció/es inválido ---
-assert_eq "401 => aviso de reconexión" "reconecta" "$(ob_token_warning 401 | grep -o reconecta | head -n1)"
-assert_eq "403 => aviso de reconexión" "reconecta" "$(ob_token_warning 403 | grep -o reconecta | head -n1)"
+# El grep va contra "reconectá" CON TILDE, que es como lo dice el aviso real. Estos dos asserts
+# estuvieron en rojo buscando "reconecta" sin tilde: el mensaje se corrigió ortográficamente y
+# los tests quedaron atrás, así que fallaban por la á aunque el aviso saliera perfecto.
+assert_eq "401 => aviso de reconexión" "reconectá" "$(ob_token_warning 401 | grep -o reconectá | head -n1)"
+assert_eq "403 => aviso de reconexión" "reconectá" "$(ob_token_warning 403 | grep -o reconectá | head -n1)"
 assert_eq "200 => sin aviso" "" "$(ob_token_warning 200)"
 
 # --- ob_json_field: parseo robusto del input del hook (regresión del bug pretty-print) ---
@@ -335,8 +338,11 @@ TMPNOTOK=$(mktemp -d); mkdir -p "$TMPNOTOK/.config/one-brain"
 printf '{"reuniones":false}' > "$TMPNOTOK/.config/one-brain/features.json"
 OUTNOTOK=$(run_start "any" "$TMPNOTOK")
 printf '%s' "$OUTNOTOK" | grep -q 'onebrain-save'; assert_eq "SIN token: NO menciona onebrain-save" 1 "$?"
-# y si además no hay ningún otro aviso (pending/reuniones), el early-exit sigue vivo: NADA de output
-assert_eq "SIN token y sin nada pendiente: session-start no emite additionalContext" "" "$OUTNOTOK"
+# Sin token el arranque YA NO se calla: desde eb37eb7 invita a conectar, porque una instalación
+# muda no le decía a nadie por qué el cerebro no aparecía. Lo que sí se mantiene —y es lo que
+# este assert cuida— es que ése sea el ÚNICO bloque: sin token no se emite ningún otro aviso.
+printf '%s' "$OUTNOTOK" | grep -q 'todavía no está conectado'; assert_eq "SIN token: session-start invita a conectar" 0 "$?"
+printf '%s' "$OUTNOTOK" | grep -qE 'session-capture|reunion'; assert_eq "SIN token y sin nada pendiente: no sale ningún otro aviso" 1 "$?"
 
 # con un pending de OTRA sesión => el output menciona la captura pendiente
 TMP=$(mktemp -d); mkdir -p "$TMP/.config/one-brain/pending"
@@ -400,6 +406,12 @@ env HOME="$HOME_T" "$FEAT" daily-synthesis
 assert_eq "feature ausente del json => exit 0 (default ON)" 0 "$?"
 
 # --- doctor: cada chequeo diagnostica el entorno REAL que se le pasa (HOME aislado) ---
+# doctor-lib NO es autosuficiente: llama a ob_host / ob_skill_cmd, que las define capture-lib.
+# Igual que en producción, donde el adaptador carga capture-lib primero (ver la cabecera de
+# session-start-lib.sh), acá hay que tenerla cargada ANTES. En este shell ya lo está —se sourcea
+# arriba de todo—, pero cada `sh -c` de abajo abre un shell NUEVO donde nada de eso existe: por
+# eso todos sourcean las DOS libs. Sin capture-lib el chequeo igual devuelve algo, con el nombre
+# del host o del comando comido a la mitad, y el test pasa midiendo un mensaje incompleto.
 . "$ROOT/core/scripts/doctor-lib.sh"
 estado() { printf '%s' "$1" | cut -d'|' -f2; }
 
@@ -408,17 +420,17 @@ mkdir -p "$DOC_HOME/.config/one-brain"
 
 # sin token
 assert_eq "doctor: sin token => falla" "falla" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # token corto (pegado a medias)
 printf 'ob_123' > "$DOC_HOME/.config/one-brain/token"
 assert_eq "doctor: token truncado => falla" "falla" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # token válido
 printf 'ob_una_clave_larga_de_verdad_1234567890' > "$DOC_HOME/.config/one-brain/token"
 assert_eq "doctor: token presente => ok" "ok" \
-  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
+  "$(estado "$(env ONE_BRAIN_TOKEN_FILE="$DOC_HOME/.config/one-brain/token" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_token')")"
 
 # hooks apagados a nivel Claude Code
 printf '{"disableAllHooks": true}' > "$DOC_HOME/settings.json"
@@ -439,7 +451,7 @@ assert_eq "doctor: hooks habilitados => ok" "ok" \
 # corra los tests) decidiría el resultado.
 carpeta_desde() { # <cwd> [env extra...] -> imprime el estado del chequeo
   _cwd=$1; shift
-  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_carpeta' )
+  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_carpeta' )
 }
 NEUTRO=$(mktemp -d) # cwd sin ningún CLAUDE.md arriba
 # (mktemp -d cuelga de /var/folders en Mac y /tmp en Linux: ningún CLAUDE.md en el camino)
@@ -478,7 +490,7 @@ printf '%s' "$(carpeta_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | gre
 assert_eq "doctor: el aviso no le tira un curl a quien quizá no usa terminal" 1 "$?"
 
 # ob_doc_claudemd_cerca sale 1 (y no imprime) cuando no hay nada: el que llama distingue.
-( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
+( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
 assert_eq "ob_doc_claudemd_cerca: sin CLAUDE.md con reglas => exit 1" 1 "$?"
 
 # el parser del hook anda en este entorno (misma señal que ob_selftest)
@@ -516,7 +528,7 @@ cat > "$V_PLUGINS" <<'JSON'
 }
 JSON
 version_de() { # <root del plugin que "corre"> [archivo installed_plugins]
-  env CLAUDE_PLUGINS_FILE="${2-$V_PLUGINS}" sh -c '. '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_version "$1"' _ "$1"
+  env CLAUDE_PLUGINS_FILE="${2-$V_PLUGINS}" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_version "$1"' _ "$1"
 }
 detalle() { printf '%s' "$1" | cut -d'|' -f3; }
 
@@ -1366,6 +1378,33 @@ assert_eq "dead-letter: el aviso dice DÓNDE quedó el payload" 0 "$?"
 export HOME="$(mktemp -d)"
 assert_eq "dead-letter: sin dead-* no hay aviso" "" "$(ob_dead_message)"
 
+# EL MOTIVO DEL RECHAZO SE GUARDA Y SE DICE (5-ago-2026). El tablero de uso mostró 14 guardados
+# muertos en producción con "400 body inválido" —seis de Fran en 29 segundos, reintentando a
+# ciegas— porque `ob_try_save` mandaba el cuerpo de la respuesta a /dev/null. Sin el motivo, el
+# aviso de dead-letter tenía que adivinar qué campo estaba mal, y cada uno de esos 400 es una
+# memoria perdida.
+export HOME="$(mktemp -d)"
+mkdir -p "$(ob_queue_dir)"
+printf '{"type":"avance","title":"T","content_md":"C"}' > "$(ob_queue_dir)/queued-conmotivo"
+FAKE_400B=$(mktemp -d)
+cat > "$FAKE_400B/curl" <<'FAKE400B'
+#!/bin/sh
+printf '{"error":"No se pudo guardar, el payload está mal: content_md: se pasa del máximo de 20000 caracteres"}\n400'
+FAKE400B
+chmod +x "$FAKE_400B/curl"
+printf 'ob_token_fake_de_test' > "$(ob_config_dir)/token"
+OB_PATH_ORIG=$PATH
+PATH="$FAKE_400B:$PATH" ob_flush_queue
+PATH=$OB_PATH_ORIG
+grep -q 'content_md' "$(ob_queue_dir)/dead-queued-conmotivo.motivo" 2>/dev/null
+assert_eq "dead-letter: el motivo del rechazo queda junto al payload" 0 "$?"
+MSG_MOTIVO=$(ob_dead_message)
+printf '%s' "$MSG_MOTIVO" | grep -q 'content_md'
+assert_eq "dead-letter: el aviso dice QUÉ campo rechazó el server" 0 "$?"
+# El .motivo no es una memoria: contarlo diría "2 memorias rechazadas" cuando hay una sola.
+printf '%s' "$MSG_MOTIVO" | grep -q 'rechazó 1 memoria'
+assert_eq "dead-letter: el .motivo no se cuenta como memoria rechazada" 0 "$?"
+
 # --- onebrain-token set: avisa antes de pisar el token de otro cerebro ---
 # El token vive en UN archivo por máquina. Conectarse a un segundo cerebro pisaba el primero en
 # silencio: la persona quedaba afuera del cerebro anterior sin enterarse, y el síntoma aparecía
@@ -1483,19 +1522,25 @@ assert_eq "puente onebrain-feature: feature en false => exit 1 (llegó al bin re
 # Se rompe el parser sin desarmar el entorno: un `jq` falso que sale con error alcanza, porque
 # ob_json_field lo prueba PRIMERO y se queda con su resultado (así lo descubriría un cliente con
 # un jq viejo o mal instalado, que es el caso real). Sin token a propósito: este aviso vive fuera
-# del gate de token, y así el bloque emitido es sólo él.
+# del gate de token.
+#
+# Se compara por CONTENIDO y no por igualdad: sin token el arranque también invita a conectar
+# (eb37eb7), así que el aviso degradado ya no viaja solo. Lo que importa acá sigue siendo lo
+# mismo —que la frase salga LETRA POR LETRA, porque hay instalaciones en producción leyéndola—
+# y eso lo garantiza el grep -F contra el texto completo: si alguien le toca una coma, rojo.
 DEG_BIN=$(mktemp -d)
 printf '#!/bin/sh\nexit 1\n' > "$DEG_BIN/jq"; chmod +x "$DEG_BIN/jq"
 printf '#!/bin/sh\nexit 0\n' > "$DEG_BIN/curl"; chmod +x "$DEG_BIN/curl"
 DEG_HOME=$(mktemp -d); mkdir -p "$DEG_HOME/.config/one-brain"
 DEG_OUT=$(printf '{"session_id":"degradado","source":"startup"}' \
   | HOME="$DEG_HOME" PATH="$DEG_BIN:$PATH" ONE_BRAIN_URL="http://127.0.0.1:9" sh "$ROOT/scripts/session-start.sh" 2>/dev/null)
-assert_eq "captura degradada: el aviso sale TAL CUAL lo viene leyendo producción" \
-  '⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de Claude Code (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario.' \
-  "$DEG_OUT"
+printf '%s' "$DEG_OUT" | grep -qF '⚠️ One Brain: la captura automática NO está operativa en este entorno — el hook no puede parsear el input de Claude Code (instalá jq o python3, o actualizá el plugin one-brain). Mientras tanto, tus avances NO se guardan solos: guardá manualmente con brain_save. Mostrale este aviso al usuario.'
+assert_eq "captura degradada: el aviso sale TAL CUAL lo viene leyendo producción" 0 "$?"
 # Y la contracara, que es el bug que esto vino a cerrar: el core NO puede volver a tener el
-# nombre de un host escrito a mano en un texto que lee una persona.
-grep -qE 'ob_client_name\(\)' "$ROOT/core/scripts/session-start-lib.sh"
+# nombre de un host escrito a mano en un texto que lee una persona. La función se llama
+# ob_host_name desde 71d3560 (antes ob_client_name); este assert quedó buscando el nombre viejo
+# y por eso daba rojo aunque el core estuviera resolviéndolo en un solo lugar, como debe.
+grep -qE 'ob_host_name' "$ROOT/core/scripts/session-start-lib.sh"
 assert_eq "el core resuelve el nombre del programa host en un solo lugar" 0 "$?"
 
 # Caracterización de session-start.sh (corre aparte: levanta un server mock).

@@ -223,9 +223,16 @@ ob_try_save() {
   # sin token no es un payload malo: es una instalación a medio conectar. Reintentable.
   [ -n "$_tok" ] || return 1
   _url="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-  _code=$(curl -s --max-time 8 -o /dev/null -w '%{http_code}' -X POST \
+  # El CUERPO de la respuesta se conserva (antes iba a /dev/null). Cuando el server rechaza un
+  # payload dice exactamente qué campo está mal, y tirar ese texto es la razón de que un
+  # dead-letter llegara sin motivo: el aviso al usuario tenía que adivinar ("título o contenido
+  # vacío, demasiado largo"). Queda en OB_ULTIMO_RECHAZO para que ob_flush_queue lo escriba
+  # junto al archivo.
+  OB_ULTIMO_RECHAZO=""
+  _resp=$(curl -s --max-time 8 -w '\n%{http_code}' -X POST \
     -H "Authorization: Bearer $_tok" -H "content-type: application/json" \
     -d "$1" "$_url/api/entry" 2>/dev/null)
+  _code=$(printf '%s' "$_resp" | tail -n1)
   case "$_code" in
     200) return 0 ;;
     # 429 es rate limit ("ahora no"), no "tu payload está mal": reintentar es lo correcto.
@@ -233,7 +240,9 @@ ob_try_save() {
     # 401/403 tampoco condenan el payload: el token venció y se puede reconectar. Reintentable
     # a propósito — tirar la memoria de alguien porque su token expiró sería lo peor posible.
     401|403) return 1 ;;
-    4??) return 2 ;;
+    4??)
+      OB_ULTIMO_RECHAZO=$(printf '%s' "$_resp" | sed '$d')
+      return 2 ;;
     *)   return 1 ;;
   esac
 }
@@ -245,12 +254,21 @@ ob_try_save() {
 ob_dead_message() {
   _q=$(ob_queue_dir); [ -d "$_q" ] || return 0
   _dn=0
+  _motivos=""
   for _d in "$_q"/dead-*; do
     [ -e "$_d" ] || continue
+    # Los .motivo son el POR QUÉ del rechazo, no memorias: contarlos duplicaría el número.
+    case "$_d" in *.motivo) continue ;; esac
     _dn=$((_dn + 1))
+    if [ -r "$_d.motivo" ]; then
+      _motivos="$_motivos $(basename "$_d"): $(tr -d '\n' < "$_d.motivo" 2>/dev/null)."
+    fi
   done
   [ "$_dn" -gt 0 ] || return 0
-  printf 'IMPORTANTE — One Brain rechazó %s memoria(s) al intentar guardarlas (el server dijo que el payload está mal, reintentarlas no las va a hacer entrar). Quedaron guardadas como archivos dead-* en %s. Leelas, corregí lo que esté mal (título o contenido vacío, demasiado largo) y reguardalas con onebrain-save; borrá el archivo dead-* recién cuando entre. Avisale al usuario.' "$_dn" "$_q"
+  # El motivo lo dice el server (qué campo y qué regla rompió). Antes este aviso adivinaba
+  # —"título o contenido vacío, demasiado largo"— porque el cuerpo de la respuesta se
+  # descartaba, y quien tenía que corregir la memoria arrancaba a ciegas.
+  printf 'IMPORTANTE — One Brain rechazó %s memoria(s) al intentar guardarlas (el payload está mal; reintentarlas no las va a hacer entrar). Quedaron como archivos dead-* en %s.%s Leelas, corregí lo que el server marcó y reguardalas con onebrain-save; borrá el archivo dead-* (y su .motivo) recién cuando entre. Avisale al usuario.' "$_dn" "$_q" "$_motivos"
 }
 
 # ob_flush_queue: reintenta cada queued-*; borra el que guarda OK, conserva el que falla.
@@ -295,7 +313,12 @@ ob_flush_queue() {
       0) rm -f "$_cl" 2>/dev/null ;;
       # DEAD-LETTER: el server rechazó el payload. Sale del ciclo de reintento pero NO se
       # borra — el contenido es de alguien y se puede corregir a mano (ob_dead_message avisa).
-      2) mv "$_cl" "$_q/dead-$_orig" 2>/dev/null ;;
+      # El MOTIVO se guarda al lado: sin él, quien tenga que corregir la memoria arranca
+      # adivinando qué campo estaba mal.
+      2)
+        mv "$_cl" "$_q/dead-$_orig" 2>/dev/null
+        [ -n "$OB_ULTIMO_RECHAZO" ] && printf '%s\n' "$OB_ULTIMO_RECHAZO" > "$_q/dead-$_orig.motivo" 2>/dev/null
+        ;;
       *) mv "$_cl" "$_q/$_orig" 2>/dev/null ;;
     esac
   done
