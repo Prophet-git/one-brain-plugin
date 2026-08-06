@@ -99,4 +99,6 @@ More on the [security](https://onebrain.prophet.lat/seguridad) and
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The plugin is open. The hosted brain it talks to is a service.
+Source-available, not open source: see [LICENSE](LICENSE). You can read and audit every
+line before installing it, and run it against the One Brain service. You can't redistribute
+it or point it at a different service.
