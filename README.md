@@ -1,95 +1,102 @@
-# Conectar tu equipo a One Brain
+# One Brain: the memory Claude Code is missing
 
-One Brain es la memoria colectiva de tu equipo: guardás decisiones y avances, y tu Claude
-Code arranca cada sesión sabiendo en qué está el equipo.
+Every session starts from zero and forgets it all on close. One Brain gives Claude Code
+permanent memory, shared by the whole team. What one person records, everyone has, with the
+name and the date still attached.
 
-## Requisitos
-- Claude Code (terminal). Si lo usás en la **app de escritorio**, tu alta se hace desde
-  la web (`/onboard`): ahí los pasos son los mismos salvo el primero, que no lleva `curl`.
-- Un entorno POSIX: Mac y Linux ya lo son; en **Windows**, Git Bash o WSL.
-- Tu **token** de acceso (te lo pasa quien te dio de alta; empieza con `ob_`).
+[Create your brain](https://onebrain.prophet.lat) · Free during the open beta ·
+[Leer en español](ONBOARDING.md)
 
-`jq` **no** hace falta: donde el plugin necesita leer o armar JSON prueba `jq`, después
-`python3` y después `perl`, y le alcanza con cualquiera de los tres. Instalarlo no molesta,
-pero no instalarlo tampoco rompe nada — el `/one-brain:doctor` lo trata como opcional.
+## What it looks like
 
-## Armá tu espacio (una vez)
+Someone asks their Claude about a service they didn't build:
 
-Pegá esto en tu terminal (en **Windows**, en **Git Bash**), con el nombre de tu empresa:
+> **why does the payments worker stop retrying after 2 attempts?**
+>
+> That cap is deliberate, not a leftover. It was set after the duplicate-charge incident
+> in March.
+>
+> *"Two retries on payments, hard stop. At five we double-charged 40 customers in one
+> night. If a queue genuinely needs more, it comes through me."*
+> Priya Raman · Platform · Mar 12
 
-    curl -fsSL https://onebrain.prophet.lat/setup.sh | bash -s -- "Tu Empresa"
+The answer came out of a teammate's session six months earlier. Nobody wrote a document
+for it.
 
-Te crea la carpeta `Documents/one-brain` ya configurada (con las reglas para que el cerebro se
-llene solo) + un acceso directo **"One Brain"** en el escritorio. Desde ahí vas a abrir Claude
-Code siempre en el lugar correcto.
+## Why it's different
 
-## Instalar el plugin (una vez)
+Nobody writes documents. Memory gets recorded when you close a topic, so there is no form
+to fill in and no wiki to keep alive.
 
-Abrí Claude Code (doble clic en "One Brain") y pegá esto, en orden. **Los reinicios NO son
-opcionales**: si conectás el token sin reiniciar antes, la skill `connect` todavía no está
-cargada y da "unknown skill".
+Every answer has a name and a date on it, which means you stop reconstructing intent from
+commit messages a year later.
 
-1. Agregá el marketplace e instalá el plugin:
+Every service, client or person is a tag. Ask about one and you get everything the team
+wrote about it, whichever teammate wrote it.
 
-    /plugin marketplace add Prophet-git/one-brain-plugin
-    /plugin install one-brain@prophet
+The server itself doesn't run any model. It stores and retrieves, and the judgment stays in
+your Claude, on your machine.
 
-2. **Cerrá Claude Code y volvé a abrirlo** (así se cargan las skills del plugin). Verificá
-   que al tipear `/one-brain:` te autocompleta los comandos.
+## Getting in
 
-3. Conectá tu token:
+1. Sign in with Google at [onebrain.prophet.lat](https://onebrain.prophet.lat). Your brain
+   exists immediately, with no form to fill in and nothing to approve.
+2. Install the plugin in Claude Code:
 
-    /one-brain:connect <tu-token>
+   ```
+   /plugin marketplace add Prophet-git/one-brain-plugin
+   /plugin install one-brain@prophet
+   ```
 
-4. **Cerrá Claude Code y volvé a abrirlo otra vez** (así el conector toma tu token).
+   Then close Claude Code and open it again, so the skills load.
+3. Connect the token the signup gives you:
 
-5. Confirmá con `/one-brain:status` que quedó conectado.
+   ```
+   /one-brain:connect <your-token>
+   ```
 
-> En Windows: cerrar y reabrir la ventana es más confiable que `/reload-plugins`. El plugin
-> necesita un entorno POSIX (WSL o Git Bash) — ver "¿Algo no anda?".
+   Close and reopen once more, then run `/one-brain:status` to confirm.
 
-## Mantener el plugin al día
+Do the restarts. While the process is alive it keeps using the old copy, and `/clear` won't
+help, because that resets the conversation and not the process.
 
-Los arreglos del plugin (la captura automática, los chequeos, los comandos) viajan en la
-versión: una instalación vieja falla de maneras que ya están resueltas. Desde la **terminal**
-(no adentro de Claude Code):
+## Daily use
 
-    claude plugin marketplace update prophet
-    claude plugin update one-brain@prophet
+Most of the time you do nothing. The team's context arrives when the session starts, and
+your Claude records what you close.
 
-**¿No usás la terminal?** Si trabajás en la app de escritorio, no hace falta que abras una
-consola: pedíselo a Claude Code, que puede correrlo él. Escribile:
+When you want to be explicit:
 
-    Corré esto en Bash, tal cual: claude plugin marketplace update prophet && claude plugin update one-brain@prophet
+- `brain_save`, or just tell Claude "save this in One Brain"
+- `brain_search` for "what did we decide about X?" or "where is client Y at?"
+- `/one-brain:handoff` to hand off state to your future self or a teammate
+- `/one-brain:resume` to pick up where the last session left off
+- `/one-brain:doctor` when something isn't working
 
-Es el mismo comando; sólo cambia quién lo tipea. El reinicio de abajo sigue siendo tuyo:
-Claude no puede reiniciar el proceso que lo está ejecutando.
+## Requirements
 
-Después **cerrá Claude Code y volvé a abrirlo**. Esto último no es opcional ni cosmético:
-mientras el proceso siga vivo sigue usando la copia vieja, aunque el update haya bajado bien.
-`/clear` NO alcanza — resetea la conversación, no el proceso.
+You need Claude Code already running, either the terminal or the desktop app. One Brain
+doesn't replace it. It gives it memory.
 
-Para ver qué versión estás usando: `claude plugin list` (la instalada) y `/one-brain:doctor`
-(la que está corriendo esta sesión; si no coinciden, te lo dice).
+It also needs a POSIX environment. macOS and Linux already are one; on Windows, use Git
+Bash or WSL. `jq` is optional, since the plugin falls back to `python3` and then `perl`.
 
-Desde el arranque, si tu versión quedó atrás, One Brain te avisa solo al empezar la sesión.
+Working in Codex instead? There's a [Codex build](https://github.com/Prophet-git/one-brain-codex)
+of the same brain.
 
-## Primer arranque
+## Your data
 
-Al reconectar, One Brain te saluda. Si tu cerebro es nuevo, corré:
+One Brain stores what your team decides and learns, not your repository. It doesn't read
+your source code. Every brain is isolated from every other one, you can see and edit every
+entry, and you can export the whole thing whenever you want without asking anyone.
 
-    /one-brain:onboard
+More on the [security](https://onebrain.prophet.lat/seguridad) and
+[privacy](https://onebrain.prophet.lat/privacy) pages.
 
-y escribimos juntos la constitución de tu empresa (misión, cómo trabajan, reglas). En la
-misma charla, con lo que nos contaste, dejamos cargadas las primeras memorias del equipo:
-así tu primera consulta ya devuelve algo en vez de un cerebro vacío.
+## Support
 
-## Uso diario
-- Guardá lo importante: pedile a Claude "guardá esto en One Brain" o usá `brain_save`.
-- Preguntá: "¿en qué está <cliente/proyecto>?", "¿qué se decidió sobre X?".
-- Al arrancar cada sesión, el contexto del equipo se inyecta solo.
+[bautista@prophet.lat](mailto:bautista@prophet.lat) · Built by [Prophet](https://prophet.lat)
 
-## ¿Algo no anda?
-- Corré `/one-brain:status` para diagnosticar.
-- "No aparecen las tools" → reiniciá la sesión (o `/reload-plugins`).
-- "token inválido" → volvé a conectar con `/one-brain:connect <token>`.
+## License
+
+MIT, see [LICENSE](LICENSE). The plugin is open. The hosted brain it talks to is a service.

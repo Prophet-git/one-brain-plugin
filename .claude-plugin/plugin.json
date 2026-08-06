@@ -1,10 +1,21 @@
 {
   "name": "one-brain",
-  "version": "0.1.663",
-  "description": "Memoria colectiva de la empresa. Guardá y consultá contexto del equipo desde tu Claude Code; el contexto del equipo se inyecta solo al arrancar la sesión.",
+  "version": "0.1.664",
+  "description": "The memory Claude Code is missing. Your team's decisions and context persist across sessions and across teammates, recorded with the author and the date attached, and injected when the session starts.",
   "author": {
-    "name": "Prophet"
+    "name": "Prophet",
+    "email": "team@prophet.lat",
+    "url": "https://prophet.lat"
   },
-  "homepage": "https://github.com/Prophet-git/one-brain",
-  "repository": "https://github.com/Prophet-git/one-brain"
+  "homepage": "https://onebrain.prophet.lat",
+  "repository": "https://github.com/Prophet-git/one-brain-plugin",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "team",
+    "context",
+    "knowledge-base",
+    "collaboration",
+    "handoff"
+  ]
 }
