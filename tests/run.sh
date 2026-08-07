@@ -711,7 +711,10 @@ orden_instalacion() { # <archivo> -> "ok" si install < reinicio < connect
   _f=$1
   _i=$(grep -n '/plugin install' "$_f" | head -n1 | cut -d: -f1)
   _c=$(grep -n '/one-brain:connect' "$_f" | head -n1 | cut -d: -f1)
-  _r=$(grep -niE 'cerr[áa] claude code|volv[ée] a abrirlo' "$_f" | awk -F: -v i="${_i:-0}" '$1 > i {print $1; exit}')
+  # El README del paquete está en español, pero el que termina siendo la portada del repo
+  # PÚBLICO es README.public.md, en inglés. Buscando sólo en español, la suite pasaba acá y
+  # fallaba corriendo desde el repo publicado — o sea, justo donde lo lee un cliente nuevo.
+  _r=$(grep -niE 'cerr[áa] claude code|volv[ée] a abrirlo|close claude code|open it again|reopen' "$_f" | awk -F: -v i="${_i:-0}" '$1 > i {print $1; exit}')
   if [ -n "$_i" ] && [ -n "$_c" ] && [ -n "$_r" ] && [ "$_i" -lt "$_r" ] && [ "$_r" -lt "$_c" ]; then
     printf 'ok'
   else
@@ -720,6 +723,12 @@ orden_instalacion() { # <archivo> -> "ok" si install < reinicio < connect
 }
 assert_eq "ONBOARDING.md: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/ONBOARDING.md")"
 assert_eq "README.md del plugin: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/README.md")"
+# README.public.md es el que publish-plugin.sh copia como README del repo público: la primera
+# página que ve alguien que llega al plugin sin conocernos. Quedaba fuera del assert, así que
+# el orden se custodiaba en las dos versiones internas y no en la que efectivamente se publica.
+if [ -f "$ROOT/README.public.md" ]; then
+  assert_eq "README.public.md (portada del repo público): reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/README.public.md")"
+fi
 
 # --- ONBOARDING.md: jq ya NO es requisito ---
 # onebrain-constitution y capture-lib.sh prueban jq → python3 → perl, y el propio doctor lo
@@ -1624,6 +1633,18 @@ if [ -d "$REPO/core" ]; then
   else
     FAIL=$((FAIL+1)); printf 'FAIL: codex-skills-test.sh — corrélo suelto para ver el detalle: sh tests/codex-skills-test.sh\n'
   fi
+fi
+
+# El activador del auto-update escribe en ~/.claude/settings.json, que es la configuración
+# global de Claude Code de otra persona. Un merge mal hecho no le rompe One Brain: le rompe
+# Claude Code entero. Sus casos son casi todos "NO tocar" (settings roto, autoUpdate apagado a
+# mano, sin python), así que corren aparte con HOME falso.
+if [ ! -f "$DIR/autoupdate-test.sh" ]; then
+  FAIL=$((FAIL+1)); printf 'FAIL: falta tests/autoupdate-test.sh\n'
+elif sh "$DIR/autoupdate-test.sh" >/dev/null 2>&1; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1)); printf 'FAIL: autoupdate-test.sh — corrélo suelto para ver el detalle: sh tests/autoupdate-test.sh\n'
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

@@ -103,9 +103,9 @@ así tu primera consulta ya devuelve algo en vez de un cerebro vacío.
 ## Sacarle todo el provecho
 
 One Brain tiene doce herramientas y la mayoría de la gente usa tres. En el panel web, en la
-pestaña **Tools**, al final hay un pedido para copiar: lo pegás una vez en Claude Code y te deja
-escrito en tu `CLAUDE.md` cómo usarlas todas y cómo manejar las sesiones (cuándo conviene cortar
-y arrancar de nuevo en vez de compactar, por ejemplo). Se pega una vez y vale para siempre.
+pestaña **Tools**, arriba de todo hay un pedido para copiar: lo pegás una vez en Claude Code y
+te deja escrito en tu `CLAUDE.md` cómo usarlas todas y cómo manejar las sesiones (cuándo conviene
+cortar y arrancar de nuevo en vez de compactar, por ejemplo). Se pega una vez y vale para siempre.
 
 ## ¿Algo no anda?
 - Corré `/one-brain:status` para diagnosticar.

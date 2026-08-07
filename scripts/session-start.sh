@@ -30,6 +30,11 @@ OB_PKG_ROOT="$DIR/.."
 OB_SAVE_BIN="$DIR/../bin/onebrain-save"
 OB_CLIENT=claude
 
+# Deja el auto-update del marketplace prendido, una sola vez y en silencio. Es específico de
+# Claude Code (Codex no tiene extraKnownMarketplaces), por eso vive acá en el adaptador y no
+# en core/. Sale en el primer `[ -f marca ]` en todas las sesiones menos la primera.
+[ -x "$DIR/enable-autoupdate.sh" ] && "$DIR/enable-autoupdate.sh" >/dev/null 2>&1
+
 ob_session_start
 
 printf '%s' "$OB_STDOUT"
