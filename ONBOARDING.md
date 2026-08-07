@@ -19,9 +19,20 @@ Pegá esto en tu terminal (en **Windows**, en **Git Bash**), con el nombre de tu
 
     curl -fsSL https://onebrain.prophet.lat/setup.sh | bash -s -- "Tu Empresa"
 
-Te crea la carpeta `Documents/one-brain` ya configurada (con las reglas para que el cerebro se
-llene solo) + un acceso directo **"One Brain"** en el escritorio. Desde ahí vas a abrir Claude
-Code siempre en el lugar correcto.
+Te deja la carpeta `Documents/one-brain` **lista para trabajar**, no una carpeta vacía:
+
+- las reglas para que el cerebro se llene solo (`CLAUDE.md`);
+- la estructura de trabajo: `notas/`, `clientes/` (con una plantilla para dar de alta), `proyectos/`, `material/` y `tareas.md`;
+- **guardado automático**: cada vez que Claude termina, commitea lo que cambió. No hay que acordarse de guardar;
+- protecciones: no se pisan archivos con claves ni se corren comandos que borren cosas;
+- un acceso directo **"One Brain"** en el escritorio, para abrir Claude Code siempre en el lugar correcto.
+
+Es seguro correrlo de nuevo: sólo el `CLAUDE.md` se regenera (así las reglas quedan al día).
+Lo que hayas escrito vos no se toca.
+
+> **¿Ya tenés tu carpeta de trabajo?** Entonces NO corras esto: te crearía una carpeta paralela
+> que no vas a abrir nunca. En la web de alta elegí "Ya tengo mi carpeta de trabajo" y seguí por
+> ahí — las reglas se te instalan en el `CLAUDE.md` global.
 
 ## Instalar el plugin (una vez)
 
@@ -88,6 +99,13 @@ así tu primera consulta ya devuelve algo en vez de un cerebro vacío.
 - Guardá lo importante: pedile a Claude "guardá esto en One Brain" o usá `brain_save`.
 - Preguntá: "¿en qué está <cliente/proyecto>?", "¿qué se decidió sobre X?".
 - Al arrancar cada sesión, el contexto del equipo se inyecta solo.
+
+## Sacarle todo el provecho
+
+One Brain tiene doce herramientas y la mayoría de la gente usa tres. En el panel web, en la
+pestaña **Tools**, al final hay un pedido para copiar: lo pegás una vez en Claude Code y te deja
+escrito en tu `CLAUDE.md` cómo usarlas todas y cómo manejar las sesiones (cuándo conviene cortar
+y arrancar de nuevo en vez de compactar, por ejemplo). Se pega una vez y vale para siempre.
 
 ## ¿Algo no anda?
 - Corré `/one-brain:status` para diagnosticar.
