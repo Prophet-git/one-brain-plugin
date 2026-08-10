@@ -38,7 +38,7 @@
 ob_unsaved_kind_codex() {
   transcript="$1"
   [ -r "$transcript" ] || { printf ''; return; }
-  awk -v min="${OB_UNSAVED_MIN_EDITS:-3}" '
+  awk -v min="${OB_UNSAVED_MIN_EDITS:-3}" -v mint="${OB_UNSAVED_MIN_TURNOS:-12}" '
     # Archivos tocados por un apply_patch. gsub devuelve la cantidad de reemplazos, así que
     # cuenta ocurrencias sin tener que iterar a mano. Trabaja sobre una copia (t) para no
     # ensuciar la línea.
@@ -84,7 +84,7 @@ ob_unsaved_kind_codex() {
         # El del bin se ancla a "onebrain-save --": el uso real SIEMPRE lleva flags, así que
         # una mención del comando (leer el archivo, nombrarlo) no se hace pasar por guardado.
         if ($0 ~ /"name":[[:space:]]*"[^"]*brain_save"/ || $0 ~ /onebrain-save --/) {
-          w = 0; u = 0; next
+          w = 0; u = 0; s = 1; next
         }
         w += archivos($0)
         # Un patch no se mira como shell: sus líneas "+" pueden contener cualquier cosa,
@@ -96,6 +96,8 @@ ob_unsaved_kind_codex() {
 
       if ($0 ~ /"type":[[:space:]]*"user_message"/) { u++; next }
     }
-    END { print (w>=min) ? "edits" : (w>0 ? "cola" : (u>=3 ? "conversacion" : "")) }
+    # Mismo criterio de ritmo que el lector de Claude Code (ver el punto 6 de capture-lib.sh):
+    # la charla sola cuenta como pendiente sólo si es LARGA y la sesión todavía no guardó nada.
+    END { print (w>=min) ? "edits" : (w>0 ? "cola" : ((u>=mint && !s) ? "conversacion" : "")) }
   ' "$transcript"
 }

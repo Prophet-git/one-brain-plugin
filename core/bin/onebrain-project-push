@@ -71,7 +71,8 @@ function detectarSetup(dir) {
 const opts = parsearArgsPush(process.argv.slice(2));
 if (!opts.proyecto) {
   salir("uso: onebrain-project-push <proyecto> [--dir <ruta>] [--env <archivo>] [--excluir A,B]\n" +
-    "                                 [--descripcion \"qué hace\"] [--prod <url>] [--roadmap-file <archivo>]");
+    "                                 [--descripcion \"qué hace\"] [--prod <url>] [--roadmap-file <archivo>]\n" +
+    "                                 [--igual-crear]");
 }
 const proyecto = opts.proyecto;
 const dir = resolve(opts.dir || process.cwd());
@@ -159,7 +160,10 @@ if (!confirmarEnTerminal("\n  ¿Subo esto al cerebro?")) {
 const res = await fetch(`${URL_BASE}/api/project`, {
   method: "POST",
   headers: { authorization: `Bearer ${token()}`, "content-type": "application/json" },
-  body: JSON.stringify({ project: proyecto, profile: perfil, secretos, origen: perfil.repo_url || dir }),
+  body: JSON.stringify({
+    project: proyecto, profile: perfil, secretos, origen: perfil.repo_url || dir,
+    permitir_repo_repetido: opts.igualCrear,
+  }),
 });
 const cuerpo = await res.json().catch(() => ({}));
 if (!res.ok) salir(`one-brain: ${cuerpo.error || `el server respondió ${res.status}`}`);

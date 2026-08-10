@@ -1,0 +1,24 @@
+{"type":"user","message":{"role":"user","content":"mensaje 1 de una charla larga"},"promptId":"turno-1"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 1"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 2 de una charla larga"},"promptId":"turno-2"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 2"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 3 de una charla larga"},"promptId":"turno-3"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 3"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 4 de una charla larga"},"promptId":"turno-4"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 4"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 5 de una charla larga"},"promptId":"turno-5"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 5"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 6 de una charla larga"},"promptId":"turno-6"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 6"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 7 de una charla larga"},"promptId":"turno-7"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 7"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 8 de una charla larga"},"promptId":"turno-8"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 8"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 9 de una charla larga"},"promptId":"turno-9"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 9"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 10 de una charla larga"},"promptId":"turno-10"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 10"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 11 de una charla larga"},"promptId":"turno-11"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 11"}]}}
+{"type":"user","message":{"role":"user","content":"mensaje 12 de una charla larga"},"promptId":"turno-12"}
+{"type":"assistant","message":{"content":[{"type":"text","text":"respuesta 12"}]}}

@@ -394,11 +394,31 @@ ob_gc_pending() {
 # ya cerrada, que nunca se limpiaba.
 ob_resolve_pending() {
   _pd=$(ob_pending_dir)
-  rm -f "$_pd/pending-$1" "$_pd/reminded-$1" "$_pd/unsaved-count-$1" "$_pd/nagged-$1" 2>/dev/null
+  rm -f "$_pd/pending-$1" "$_pd/reminded-$1" "$_pd/unsaved-count-$1" "$_pd/nagged-$1" \
+        "$_pd/saved-at-$1" 2>/dev/null
 }
 
 # ob_should_renag <count>: 1 si toca reinsistir el recordatorio (múltiplo de 5, >0), 0 si no.
 ob_should_renag() { { [ "$1" -gt 0 ] && [ $(( $1 % 5 )) -eq 0 ]; } && printf 1 || printf 0; }
+
+# ob_should_remind <turno> <ya_avisó 0|1> <turno del último guardado, o vacío>
+# Decide si el Stop hook habla en ESTE turno. Concentra acá la política de ritmo porque los dos
+# clientes (Claude Code y Codex) tienen que insistir igual.
+#
+# La regla que faltaba es la tercera: DESPUÉS DE GUARDAR HAY UN PISO DE TURNOS. Antes, guardar
+# borraba el contador y el marker de "ya avisé", así que el ciclo volvía a cero y el aviso
+# reaparecía al turno siguiente — el hook felicitaba el guardado pidiendo otro. Medido el
+# 9-ago-2026: 8 memorias en una sola conversación, 4 versiones sucesivas de una idea descartada.
+# Cada una de esas versiones queda para siempre en la búsqueda del resto del equipo.
+ob_should_remind() {
+  _gap=${OB_SAVED_GAP:-10}
+  case "$3" in
+    ''|*[!0-9]*) ;;  # sin guardado en esta sesión (o marca ilegible): sigue la política de siempre
+    *) [ $(( $1 - $3 )) -lt "$_gap" ] && { printf 0; return; } ;;
+  esac
+  [ "$2" = "1" ] || { printf 1; return; }   # primera vez en la sesión
+  ob_should_renag "$1"
+}
 
 # ob_token_warning <http-code>: aviso fuerte si el token está vencido/inválido (401/403).
 ob_token_warning() {
@@ -460,18 +480,27 @@ ob_has_unsaved_work() {
   [ -n "$(ob_unsaved_kind "$1")" ] && printf 1 || printf 0
 }
 
-# ob_unsaved_kind <transcript>: "edits" | "conversacion" | "" (nada sin guardar).
+# 6) EL UMBRAL DE CHARLA ERA 3 TURNOS Y NO MIRABA SI LA SESIÓN YA HABÍA GUARDADO. Con eso,
+#    cualquier conversación normal quedaba marcada como "trabajo sin guardar" —y el hook de Stop
+#    pedía guardar cada tres mensajes—. Guardar tampoco calmaba nada: el guardado en sí y los
+#    mensajes que venían después ya eran turnos nuevos, así que el aviso volvía enseguida.
+#    Medido el 9-ago-2026: 8 memorias en una sola conversación, 4 de ellas versiones sucesivas
+#    de una idea que después se descartó. Ahora la charla sola cuenta como pendiente sólo si es
+#    LARGA (12 turnos, `OB_UNSAVED_MIN_TURNOS`) Y la sesión no guardó nada todavía: si ya guardó,
+#    lo que se dijo después está cubierto por esa memoria y no hay nada que rescatar.
+#
+# ob_unsaved_kind <transcript>: "edits" | "cola" | "conversacion" | "" (nada sin guardar).
 ob_unsaved_kind() {
   transcript="$1"
   [ -r "$transcript" ] || { printf ''; return; }
-  awk -v min="${OB_UNSAVED_MIN_EDITS:-3}" '
+  awk -v min="${OB_UNSAVED_MIN_EDITS:-3}" -v mint="${OB_UNSAVED_MIN_TURNOS:-12}" '
     function turno(s) {
       # "promptId":" son 12 caracteres; la comilla de cierre, 1 más.
       if (match(s, /"promptId":"[^"]*"/)) return substr(s, RSTART + 12, RLENGTH - 13)
       return ""
     }
-    /"name":"[^"]*brain_save"/                                     { w=0; u=0; split("", vistos); next }
-    /"name":"Bash"/ && /onebrain-save --/                          { w=0; u=0; split("", vistos); next }
+    /"name":"[^"]*brain_save"/                                     { w=0; u=0; s=1; split("", vistos); next }
+    /"name":"Bash"/ && /onebrain-save --/                          { w=0; u=0; s=1; split("", vistos); next }
     /"name":"Edit"/ || /"name":"Write"/                            { w++; next }
     /"name":"Bash"/ && (/git commit/ || /vercel --prod/ || /vercel deploy/) { w++; next }
     /"type":"user"/ && /"role":"user"/ && !/"tool_result"/ {
@@ -481,6 +510,6 @@ ob_unsaved_kind() {
       if (!(p in vistos)) { vistos[p] = 1; u = u + 1 }
       next
     }
-    END { print (w>=min) ? "edits" : (w>0 ? "cola" : (u>=3 ? "conversacion" : "")) }
+    END { print (w>=min) ? "edits" : (w>0 ? "cola" : ((u>=mint && !s) ? "conversacion" : "")) }
   ' "$transcript"
 }

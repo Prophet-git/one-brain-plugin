@@ -149,11 +149,12 @@ export function mismoRepo(repoPerfil, repoLocal) {
  *  y las credenciales al proyecto equivocado. */
 export function parsearArgsPush(argv) {
   const conValor = { "--dir": "dir", "--descripcion": "descripcion", "--prod": "prod", "--roadmap-file": "roadmapFile" };
-  const opciones = { dir: null, descripcion: null, prod: null, roadmapFile: null, env: [], excluir: [] };
+  const opciones = { dir: null, descripcion: null, prod: null, roadmapFile: null, env: [], excluir: [], igualCrear: false };
   const sueltos = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (conValor[a]) { opciones[conValor[a]] = argv[++i] ?? null; continue; }
+    if (a === "--igual-crear") { opciones.igualCrear = true; continue; }
     if (a === "--env") { const v = argv[++i]; if (v) opciones.env.push(v); continue; }
     if (a === "--excluir") {
       const v = argv[++i] ?? "";

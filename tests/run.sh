@@ -21,7 +21,11 @@ assert_eq "saved => 0"            0 "$(ob_has_unsaved_work "$FIX/saved.jsonl")"
 assert_eq "no-work => 0"          0 "$(ob_has_unsaved_work "$FIX/no-work.jsonl")"
 assert_eq "work-after-save => 1"  1 "$(ob_has_unsaved_work "$FIX/work-after-save.jsonl")"
 assert_eq "missing file => 0"     0 "$(ob_has_unsaved_work "$FIX/does-not-exist.jsonl")"
-assert_eq "conversación sustancial sin guardar => 1" 1 "$(ob_has_unsaved_work "$FIX/conversational.jsonl")"
+# El umbral de charla subió de 3 turnos a 12 (9-ago-2026): con 3, el hook pedía guardar cada
+# tres mensajes y la sesión terminaba con cinco versiones de una idea sin cerrar adentro del
+# cerebro. Charlar no es trabajar; una charla LARGA sin ningún guardado, sí vale rescatarla.
+assert_eq "charla de 3 turnos => 0 (charlar no es trabajar)" 0 "$(ob_has_unsaved_work "$FIX/conversational.jsonl")"
+assert_eq "charla larga sin ningún guardado => 1" 1 "$(ob_has_unsaved_work "$FIX/conversational-larga.jsonl")"
 
 # --- BUGS de review (formato REAL de transcript, no sintético) ---
 # Bug 1: cada tool_result se loguea como type:user+role:user (mismo shape que un mensaje humano
@@ -129,12 +133,13 @@ assert_eq "onebrain-resolve-pending borra la marca" 0 "$([ -e "$PD2/pending-SESS
 assert_eq "kind: trabajo sustancial sin guardar => edits" "edits"       "$(ob_unsaved_kind "$FIX/work-substantial-after-save.jsonl")"
 assert_eq "kind: 2 edits sin guardar => cola"            "cola"         "$(ob_unsaved_kind "$FIX/work-no-save.jsonl")"
 assert_eq "kind: 1 edit después de guardar => cola"      "cola"         "$(ob_unsaved_kind "$FIX/work-after-save.jsonl")"
-assert_eq "kind: sólo conversación => conversacion"      "conversacion" "$(ob_unsaved_kind "$FIX/conversational.jsonl")"
+assert_eq "kind: charla larga sin guardar => conversacion" "conversacion" "$(ob_unsaved_kind "$FIX/conversational-larga.jsonl")"
+assert_eq "kind: charla corta => vacío"                  ""             "$(ob_unsaved_kind "$FIX/conversational.jsonl")"
 assert_eq "kind: todo guardado => vacío"                 ""             "$(ob_unsaved_kind "$FIX/saved.jsonl")"
 assert_eq "kind: sin trabajo => vacío"                   ""             "$(ob_unsaved_kind "$FIX/no-work.jsonl")"
 assert_eq "kind: transcript inexistente => vacío"        ""             "$(ob_unsaved_kind "$FIX/does-not-exist.jsonl")"
 # ob_has_unsaved_work queda como wrapper: mismo contrato de siempre para el recordatorio suave.
-assert_eq "has_unsaved_work sigue siendo 1 con conversación" 1 "$(ob_has_unsaved_work "$FIX/conversational.jsonl")"
+assert_eq "has_unsaved_work sigue siendo 1 con charla larga" 1 "$(ob_has_unsaved_work "$FIX/conversational-larga.jsonl")"
 
 # --- ob_gc_pending: ningún marker vive para siempre ----------------------------------------
 # Sin esto, cerrar Claude Code deja el marker huérfano PARA SIEMPRE: nada lo borra cuando la
@@ -207,7 +212,7 @@ TRC="$HOME/cola.jsonl"; : > "$TRC"; touch -t 202001010000 "$TRC"
 printf 'transcript=%s\ncwd=/proj\nreason=cola\n' "$TRC" > "$PDC/pending-KCOLA"
 assert_eq "reason=cola NO avisa al arrancar" 0 "$(ob_pending_message ACTUAL | grep -c 'SIN GUARDAR')"
 assert_eq "y el marker de cola se limpia" 0 "$([ -e "$PDC/pending-KCOLA" ] && echo 1 || echo 0)"
-T=$(run_stop "$FIX/conversational.jsonl" "s6")
+T=$(run_stop "$FIX/conversational-larga.jsonl" "s6")
 assert_eq "marker de sólo-charla anota reason=conversacion" "conversacion" \
   "$(sed -n 's/^reason=//p' "$(pend_path "$T" s6)" 2>/dev/null)"
 
@@ -256,11 +261,14 @@ OUT4=$(run_stop_turn "$TMPR")
 printf '%s' "$OUT4" | grep -q 'Hay trabajo en esta sesión'; assert_eq "renag: turno 4 NO avisa" 1 "$?"
 OUT5=$(run_stop_turn "$TMPR")
 printf '%s' "$OUT5" | grep -q 'Hay trabajo en esta sesión'; assert_eq "renag: turno 5 REINSISTE" 0 "$?"
-# guardar reinicia el ciclo: el próximo turno con trabajo sin guardar vuelve a avisar en el 1º
+# Guardar NO reinicia el ciclo: hay un piso de turnos antes del próximo aviso. Antes se borraban
+# el contador y el marker de "ya avisé", así que el turno siguiente al guardado volvía a pedir —
+# el hook felicitaba el guardado pidiendo otro, y de ahí salían las versiones intermedias que
+# ensucian la búsqueda de todo el equipo. Ver plugin/tests/stop-guard-ritmo-test.sh.
 printf '{"transcript_path":"%s","session_id":"s-renag","cwd":"/tmp/proj"}' "$FIX/saved.jsonl" \
   | HOME="$TMPR" sh "$ROOT/scripts/stop-guard.sh" >/dev/null 2>&1
 OUT6=$(run_stop_turn "$TMPR")
-printf '%s' "$OUT6" | grep -q 'Hay trabajo en esta sesión'; assert_eq "renag: tras guardar, reinicia y avisa en el turno 1" 0 "$?"
+printf '%s' "$OUT6" | grep -q 'Hay trabajo en esta sesión'; assert_eq "renag: tras guardar NO vuelve a pedir enseguida" 1 "$?"
 
 # --- REGRESIÓN del bug: input pretty-printed + campos falsos en last_assistant_message ---
 run_stop_pretty() { # <fixture> <session_id> ; input pretty-printed con un "transcript_path"/"session_id" FALSO adentro
@@ -1298,8 +1306,11 @@ assert_eq "falso positivo: /clear + 'hola' NO es trabajo sin guardar" 0 \
 # Mismo caso con imágenes: un solo prompt con 2 adjuntas mete 4 mensajes isMeta.
 assert_eq "falso positivo: un prompt con imágenes adjuntas NO es trabajo sin guardar" 0 \
   "$(ob_has_unsaved_work "$FIX/falso-positivo-imagenes.jsonl")"
-# Y lo que SÍ tiene que seguir avisando: 3 turnos REALES (3 promptId distintos), sin edits.
-assert_eq "3 turnos reales del usuario (3 promptId) => sigue avisando" 1 \
+# Y del otro lado: 3 turnos REALES (3 promptId distintos) sin edits tampoco alcanzan desde que
+# el umbral de charla es 12. El promptId sigue siendo la señal correcta —lo que cambió es cuánta
+# charla hace falta para que valga la pena rescatarla—, así que el fixture se queda como
+# regresión del parseo, con el resultado que corresponde hoy.
+assert_eq "3 turnos reales del usuario (3 promptId) => ya no alcanza" 0 \
   "$(ob_has_unsaved_work "$FIX/conversational-promptid.jsonl")"
 # Un turno con 20 tool_results comparte el promptId del turno: no infla el contador.
 assert_eq "1 turno con muchos tool_results => 0 (el promptId es el mismo)" 0 \
@@ -1645,6 +1656,18 @@ elif sh "$DIR/autoupdate-test.sh" >/dev/null 2>&1; then
   PASS=$((PASS+1))
 else
   FAIL=$((FAIL+1)); printf 'FAIL: autoupdate-test.sh — corrélo suelto para ver el detalle: sh tests/autoupdate-test.sh\n'
+fi
+
+# El RITMO del recordatorio: cada cuánto el hook Stop pide guardar. Corre aparte porque necesita
+# ejecutar el hook muchas veces seguidas con HOME falso para simular una sesión larga. Lo que
+# protege es la calidad del cerebro: un aviso que aparece cada tres mensajes se contesta
+# guardando, y así entran cinco versiones de una idea que todavía no cerró.
+if [ ! -f "$DIR/stop-guard-ritmo-test.sh" ]; then
+  FAIL=$((FAIL+1)); printf 'FAIL: falta tests/stop-guard-ritmo-test.sh (desapareció la batería del ritmo de captura)\n'
+elif sh "$DIR/stop-guard-ritmo-test.sh" >/dev/null 2>&1; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1)); printf 'FAIL: stop-guard-ritmo-test.sh — corrélo suelto para ver el detalle: sh tests/stop-guard-ritmo-test.sh\n'
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

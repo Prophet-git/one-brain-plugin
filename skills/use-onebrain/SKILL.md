@@ -38,11 +38,13 @@ La búsqueda encuentra lo que existe con esas palabras. NO sirve, por sí sola, 
 Cuando en la conversación aparezca una entidad conocida (un cliente, proyecto, persona o tema de la empresa), traé y **citá** lo que el equipo ya sabe de ella —con procedencia: quién lo cargó y cuándo— **sin que te lo pidan**. La gente no siempre sabe qué preguntar.
 
 ## Guardar (durante la sesión Y al cerrar)
-Guardá con `brain_save` **apenas se cierra algo con señal — no solo al final de la sesión**: cada vez que se toma una **decisión importante**, se completa un **hito o avance concreto** (un deploy, un fix, un entregable, una definición), o aprendés un **dato relevante** (reunión, llamada, problema). No lo dejes para el cierre: volcalo en el momento.
+Guardá con `brain_save` **apenas algo CIERRA — no solo al final de la sesión**: cada vez que se toma una **decisión importante**, se completa un **hito o avance concreto** (un deploy, un fix, un entregable, una definición), o aprendés un **dato relevante** (reunión, llamada, problema). No lo dejes para el cierre: volcalo en el momento.
+
+**Una cosa cerrada, una memoria.** Lo que todavía se está discutiendo no se guarda: si la idea sigue cambiando, esperá a que cierre. Guardar cada versión intermedia deja tres o cuatro memorias que dicen cosas distintas sobre lo mismo, y el que busque dentro de dos semanas no va a saber cuál vale — el ruido lo paga todo el equipo, no la sesión que lo generó. Si algo que YA guardaste cambió, no sumes otra memoria: guardá la nueva con `supersedes` apuntando a la vieja.
 
 - **Propone-y-confirma**: antes de escribir, mostrá el resumen y pedí OK — "voy a guardar esto: […] · ¿ok / editás / descartás?". Con el OK, llamá `brain_save`.
 - Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
-- **NO** guardes trivialidades, pasos intermedios ni datos personales sensibles.
+- **NO** guardes trivialidades, pasos intermedios, verificaciones de estado ("confirmé que anda", "los tests pasan") ni datos personales sensibles. La prueba rápida: **si dentro de dos semanas nadie lo buscaría, no va**.
 
 ## Mencionar a un compañero (notificar) — NO es lo mismo que linkear
 Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_mention` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.

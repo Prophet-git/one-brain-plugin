@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// onebrain-project-fusionar — unir dos proyectos que en realidad son el mismo.
+//
+// Uso: onebrain-project-fusionar --desde "<el que sobra>" --hacia "<el que queda>"
+//
+// Existe porque un proyecto cargado con el nombre equivocado no se podía deshacer: quedaban dos
+// fichas del mismo repo, una con la historia y otra vacía. Fusionar y no borrar: las memorias del
+// sobrante pasan al que queda, y su nombre queda de alias, así que quien lo busque por el nombre
+// viejo sigue llegando. La confirmación se pide en la terminal, como en el resto del espacio de
+// proyecto: esto cambia el panel de toda la empresa.
+
+import { readFileSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { skillCmd } from "../scripts/project-lib.mjs";
+import { preguntar, esSi } from "../scripts/tty.mjs";
+
+const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
+
+function salir(msg, codigo = 1) { console.error(msg); process.exit(codigo); }
+
+function token() {
+  const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
+  if (!existsSync(f)) salir(`one-brain: sin token. Conectá con ${skillCmd("connect")} <token>.`);
+  return readFileSync(f, "utf8").trim();
+}
+
+function parsear(argv) {
+  const opts = { desde: null, hacia: null };
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--desde") { opts.desde = argv[++i] ?? null; continue; }
+    if (argv[i] === "--hacia") { opts.hacia = argv[++i] ?? null; continue; }
+  }
+  return opts;
+}
+
+const { desde, hacia } = parsear(process.argv.slice(2));
+if (!desde || !hacia) {
+  salir('uso: onebrain-project-fusionar --desde "<el que sobra>" --hacia "<el que queda>"');
+}
+
+const auth = { authorization: `Bearer ${token()}`, "content-type": "application/json" };
+
+// Se muestra qué hay de cada lado ANTES de preguntar: fusionar al revés deja el proyecto bueno
+// convertido en alias del vacío, y eso no se ve hasta que alguien lo busca y no lo encuentra.
+async function ver(nombre) {
+  const r = await fetch(`${URL_BASE}/api/project?project=${encodeURIComponent(nombre)}`, { headers: auth });
+  if (!r.ok) return null;
+  return r.json();
+}
+
+const [a, b] = await Promise.all([ver(desde), ver(hacia)]);
+if (!a) salir(`one-brain: no existe el proyecto "${desde}".`);
+if (!b) salir(`one-brain: no existe el proyecto "${hacia}".`);
+
+const linea = (p) => [
+  `    Repo ......... ${p.profile?.repo_url || "(sin repo)"}`,
+  `    Producción ... ${p.profile?.prod_url || "(sin URL)"}`,
+  `    Credenciales . ${p.secretos?.length ?? 0}`,
+].join("\n");
+
+console.log(`\n  SOBRA — "${a.project.name}" (deja de existir como proyecto aparte)`);
+console.log(linea(a));
+console.log(`\n  QUEDA — "${b.project.name}"`);
+console.log(linea(b));
+console.log(`\n  Las memorias y las credenciales de "${a.project.name}" pasan a "${b.project.name}".`);
+console.log(`  "${a.project.slug}" queda como alias: buscarlo por ese nombre lleva al que queda.`);
+
+const r = preguntar(`\n  ¿Fusiono "${a.project.name}" dentro de "${b.project.name}"?`);
+if (r === null) salir("one-brain: hace falta una terminal para confirmar una fusión.");
+if (!esSi(r)) salir("\n  Cancelado. No se tocó nada.\n", 0);
+
+const res = await fetch(`${URL_BASE}/api/project/fusionar`, {
+  method: "POST",
+  headers: auth,
+  body: JSON.stringify({ desde, hacia }),
+});
+const cuerpo = await res.json().catch(() => ({}));
+if (!res.ok) salir(`one-brain: ${cuerpo.error || `el server respondió ${res.status}`}`);
+
+console.log(`\n  Listo: "${cuerpo.fusionado?.name}" quedó dentro de "${cuerpo.project?.name}".\n`);

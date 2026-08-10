@@ -48,31 +48,41 @@ KIND=$(ob_unsaved_kind "$TRANSCRIPT")
 [ -n "$KIND" ] && UNSAVED=1 || UNSAVED=0
 
 CNT_FILE="$PDIR/unsaved-count-$SESSION"
+SAVED_FILE="$PDIR/saved-at-$SESSION"
 mkdir -p "$PDIR" 2>/dev/null
-if [ "$UNSAVED" = "1" ]; then
-  # marker con lo que el fallback necesita para destilar la sesión anterior
-  { printf 'transcript=%s\n' "$TRANSCRIPT"; printf 'cwd=%s\n' "$CWD"; printf 'reason=%s\n' "$KIND"; } > "$PEND"
-else
-  # se guardó (o no hay trabajo): se reinicia el ciclo de recordatorio para la próxima vez.
-  rm -f "$PEND" "$PDIR/reminded-$SESSION" "$CNT_FILE" 2>/dev/null
-  exit 0
-fi
 
-# Recordatorio: la primera vez por sesión (marker reminded-), y de ahí en más REINSISTE cada 5
-# turnos con trabajo sin guardar (ob_should_renag) — un aviso único al arrancar se pierde de
-# vista en sesiones largas y el trabajo queda sin registrar más tiempo del necesario.
-MARK="$PDIR/reminded-$SESSION"
+# El contador cuenta TURNOS de la sesión, no turnos con deuda: se incrementa siempre, incluso
+# cuando no hay nada pendiente. Es lo que permite medir cuánto pasó desde el último guardado —
+# antes se reiniciaba justo al guardar, y el aviso volvía al turno siguiente.
 CNT=$(cat "$CNT_FILE" 2>/dev/null); [ -n "$CNT" ] || CNT=0
 CNT=$((CNT + 1))
 printf '%s' "$CNT" > "$CNT_FILE" 2>/dev/null
 
-REMIND=0
-if [ ! -e "$MARK" ]; then
-  printf '' > "$MARK" 2>/dev/null
-  REMIND=1
-elif [ "$(ob_should_renag "$CNT")" = "1" ]; then
-  REMIND=1
+if [ "$UNSAVED" = "1" ]; then
+  # marker con lo que el fallback necesita para destilar la sesión anterior
+  { printf 'transcript=%s\n' "$TRANSCRIPT"; printf 'cwd=%s\n' "$CWD"; printf 'reason=%s\n' "$KIND"; } > "$PEND"
+else
+  # Se guardó (o no hay trabajo): se levanta la deuda y se ANOTA en qué turno pasó. Lo que NO se
+  # borra es el ciclo de recordatorio: borrarlo era pedir de nuevo dos turnos después de guardar.
+  rm -f "$PEND" 2>/dev/null
+  printf '%s' "$CNT" > "$SAVED_FILE" 2>/dev/null
+  exit 0
 fi
-[ "$REMIND" = "1" ] || exit 0
+
+# Una charla larga se anota para el aviso de ARRANQUE (que sabe leer el transcript entero), pero
+# no se reclama turno a turno: interrumpir una conversación para pedir que la guarde es
+# exactamente lo que llenaba el cerebro de versiones intermedias de una idea sin cerrar.
+[ "$KIND" = "conversacion" ] && exit 0
+
+# Recordatorio: la primera vez por sesión (marker reminded-), y de ahí en más REINSISTE cada 5
+# turnos con trabajo sin guardar — un aviso único al arrancar se pierde de vista en sesiones
+# largas y el trabajo queda sin registrar más tiempo del necesario. Con un piso de turnos
+# después de cada guardado (ob_should_remind).
+MARK="$PDIR/reminded-$SESSION"
+[ -e "$MARK" ] && REMINDED=1 || REMINDED=0
+SAVED_AT=$(cat "$SAVED_FILE" 2>/dev/null)
+
+[ "$(ob_should_remind "$CNT" "$REMINDED" "$SAVED_AT")" = "1" ] || exit 0
+printf '' > "$MARK" 2>/dev/null
 printf '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Hay trabajo en esta sesión sin registrar en One Brain. Al cerrar (o si decís algo tipo \\"listo/gracias\\"): (1) guardá los avances/decisiones con la skill session-capture (destilá, proponé, guardá con brain_save); (2) si quedó trabajo a medio hacer, dejá un handoff con la skill handoff para retomarlo en la próxima sesión."}}'
 exit 0
