@@ -53,6 +53,31 @@ ob_perfil_maquina() {
   if [ "$_obso" = darwin ] && [ -d "/Applications/WhatsApp.app" ]; then
     _obtiene="$_obtiene${_obtiene:+,}\"WhatsApp Desktop\""
   fi
+
+  # mlx-whisper es un caso aparte por dos motivos que se suman: su ejecutable se llama
+  # mlx_whisper con guion BAJO (el guion medio es el nombre del paquete de pip, no del binario),
+  # y se instala en un venv que nadie tiene activado. Con `command -v mlx-whisper` no aparecía
+  # NUNCA, ni en la computadora donde anda perfecto: el panel apagaba la card de la primera
+  # skill del catálogo diciéndole a su propio autor que le faltaba algo que tenía instalado.
+  #
+  # Se busca el EJECUTABLE donde vive, no se importa el módulo: `python -c "import mlx_whisper"`
+  # tarda 1,5 s y esto corre en cada arranque de sesión. Se reporta con el nombre que usa la
+  # ficha del catálogo (mlx-whisper), que es contra lo que compara el server.
+  case ",$_obtiene," in
+    *'"mlx-whisper"'*) ;;
+    *)
+      for _obmw in \
+        "$(command -v mlx_whisper 2>/dev/null)" \
+        "$(command -v mlx-whisper 2>/dev/null)" \
+        "${WA_READ_WHISPER_PY%/*}/mlx_whisper" \
+        "${HOME:-$USERPROFILE}/.local/mlx-whisper-venv/bin/mlx_whisper"
+      do
+        if [ -n "$_obmw" ] && [ -x "$_obmw" ]; then
+          _obtiene="$_obtiene${_obtiene:+,}\"mlx-whisper\""
+          break
+        fi
+      done ;;
+  esac
   printf '{"so":"%s","arch":"%s","tiene":[%s]}' "$_obso" "$_obarch" "$_obtiene"
 }
 

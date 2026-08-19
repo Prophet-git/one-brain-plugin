@@ -1783,6 +1783,30 @@ ONE_BRAIN_STATE_DIR=/tmp/ob-test-estado
 assert_eq "manifest = <estado>/skills.json" "/tmp/ob-test-estado/skills.json" "$(ob_skills_manifest)"
 unset ONE_BRAIN_STATE_DIR
 
+# mlx-whisper se instala en un venv y su ejecutable se llama mlx_whisper, con guion BAJO. Con
+# `command -v mlx-whisper` no aparecía ni con el venv activado, así que el panel apagaba la card
+# de la primera skill del catálogo en una computadora que sí puede correrla — el falso negativo
+# exacto que la regla de "ante la duda, dejar intentar" existe para evitar. Se busca el
+# ejecutable donde vive, sin importar el módulo: importarlo cuesta 1,5 s y esto corre en CADA
+# arranque de sesión.
+VENV_FALSO=$(mktemp -d)
+mkdir -p "$VENV_FALSO/.local/mlx-whisper-venv/bin"
+printf '#!/bin/sh\n' > "$VENV_FALSO/.local/mlx-whisper-venv/bin/mlx_whisper"
+chmod +x "$VENV_FALSO/.local/mlx-whisper-venv/bin/mlx_whisper"
+OB_SKILLS_BINARIOS="no-existe-este-binario-xyz"
+case "$(HOME="$VENV_FALSO" ob_perfil_maquina)" in
+  *'"mlx-whisper"'*) assert_eq "encuentra mlx-whisper en su venv, aunque no esté en el PATH" 1 1 ;;
+  *) assert_eq "encuentra mlx-whisper en su venv, aunque no esté en el PATH" 1 0 ;;
+esac
+# Y sin el venv no se lo inventa: decir que está cuando no está es peor que apagar la card.
+VACIO=$(mktemp -d)
+case "$(HOME="$VACIO" PATH=/nada ob_perfil_maquina)" in
+  *'"mlx-whisper"'*) assert_eq "no inventa mlx-whisper cuando no está" 1 0 ;;
+  *) assert_eq "no inventa mlx-whisper cuando no está" 1 1 ;;
+esac
+unset OB_SKILLS_BINARIOS
+rm -rf "$VENV_FALSO" "$VACIO"
+
 # La BAJADA (bajar, verificar sha256, escribir, sacar) corre aparte porque necesita un server
 # levantado, y este runner no levanta ninguno. Mismo patrón que las otras baterías de arriba.
 if [ ! -f "$DIR/skills-test.sh" ]; then
