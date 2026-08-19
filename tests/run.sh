@@ -75,6 +75,76 @@ RESP='{
 }'
 assert_eq "resume con comillas se parsea entero" 'retomá donde quedaste con "comillas" adentro' "$(ob_json_field resume "$RESP")"
 
+# --- ob_json_field: la rama PERL de la cascada, la única que corre en Windows -------------------
+# Todos los asserts de arriba pasan por jq o python3: en el PATH de esta máquina y del CI siempre
+# hay uno de los dos, así que las ramas de más abajo de la cascada nunca se ejercitan acá y un bug
+# ahí sólo aparece en la máquina de un cliente. En Windows/Git Bash pasa exactamente al revés —jq
+# casi nunca está y python3 tampoco es seguro, pero perl viene con Git Bash— o sea que la rama que
+# nadie prueba es justo la que le toca al único usuario Windows que tenemos.
+#
+# El PATH acotado (sólo un perl) es la forma de forzarla sin desarmar el entorno entero. Va con
+# acentos a propósito: es el mismo modo de falla que ya apareció en la rama perl de ob_clip
+# (mojibake por imprimir caracteres decodificados a un stream que no está en utf8), y el texto de
+# este producto está todo en español.
+JF_PERL_DIR=$(mktemp -d)
+printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v perl)" > "$JF_PERL_DIR/perl"; chmod +x "$JF_PERL_DIR/perl"
+JF_ACENTOS='{"last_assistant_message":"quedó todo en producción, ñandú","transcript_path":"/Users/muñoz/t.jsonl"}'
+assert_eq "perl: el mensaje con acentos sale intacto" \
+  "quedó todo en producción, ñandú" "$(PATH="$JF_PERL_DIR" ob_json_field last_assistant_message "$JF_ACENTOS")"
+assert_eq "perl: una ruta con acentos sigue apuntando al archivo real" \
+  "/Users/muñoz/t.jsonl" "$(PATH="$JF_PERL_DIR" ob_json_field transcript_path "$JF_ACENTOS")"
+assert_eq "perl: el self-test del parser también pasa por esta rama" \
+  1 "$(PATH="$JF_PERL_DIR" ob_selftest)"
+rm -rf "$JF_PERL_DIR"
+
+# --- ob_clip y ob_chars: las ramas de ABAJO de la cascada, contra la de arriba ------------------
+# Mismo problema que el de perl de acá arriba, en las otras dos funciones que comparten la
+# cascada. Acá el modo de falla ya se cobró tres bugs y ninguno lo encontró un test: awk contando
+# BYTES en vez de caracteres, awk ABORTANDO (y devolviendo vacío, o sea el bloque entero
+# desapareciendo del contexto sin dejar rastro) cuando el corte caía en medio de un acento, y
+# `wc -m` cayendo a bytes cuando el locale no es UTF-8.
+#
+# El assert es de PARIDAD y no contra un literal a propósito: lo que importa no es el número, es
+# que las tres ramas coincidan. Un literal fija el criterio de una sola. Barrido de puntos de
+# corte porque el bug del abort dependía de DÓNDE caía el corte: 6 de 101 posiciones fallaban y
+# las otras 95 daban verde.
+#
+# HASTA DÓNDE LLEGA CADA UNO, medido sacándole el arreglo al código y viendo si la batería se
+# pone roja:
+#  - el de ob_chars SÍ es un guardia vivo: volviendo a `wc -m` da 63 contra 57 y se pone rojo.
+#  - los dos de ob_clip NO están demostrados. Se le sacó el LC_ALL=C a la rama awk (el arreglo
+#    que existe justamente para que no aborte) y siguió dando 0 vacíos de 40, incluso forzando
+#    en_US.UTF-8: el awk de esta Mac no aborta con este texto. El abort es real —está medido en
+#    el ledger, 6 de 101 puntos de corte— pero no se reproduce acá, así que estos dos asertos son
+#    una red para OTRO awk, no una prueba de que el arreglo esté puesto. Lo único que se pone
+#    rojo si alguien saca ese LC_ALL=C es core-sync-test.sh, y por el motivo equivocado (detecta
+#    que la copia difiere de core/, no que el comportamiento cambió).
+CAS_DIR=$(mktemp -d)
+for _b in awk cat wc tr mktemp cut sed; do
+  _p=$(command -v "$_b") || continue
+  printf '#!/bin/sh\nexec %s "$@"\n' "$_p" > "$CAS_DIR/$_b"; chmod +x "$CAS_DIR/$_b"
+done
+CAS_TXT='ñandúes come café en la esquina del corazón, azúcar y más'
+CAS_DIFF=0
+CAS_VACIO=0
+_n=1
+while [ "$_n" -le 40 ]; do
+  _arriba=$(printf '%s' "$CAS_TXT" | ob_clip "$_n" 'puntero')
+  _abajo=$(printf '%s' "$CAS_TXT" | PATH="$CAS_DIR" ob_clip "$_n" 'puntero')
+  [ "$_arriba" = "$_abajo" ] || CAS_DIFF=$((CAS_DIFF + 1))
+  [ -n "$_abajo" ] || CAS_VACIO=$((CAS_VACIO + 1))
+  _n=$((_n + 1))
+done
+assert_eq "ob_clip: la rama awk corta igual que la de arriba (40 puntos de corte con acentos)" 0 "$CAS_DIFF"
+assert_eq "ob_clip: la rama awk nunca devuelve vacío teniendo texto de entrada" 0 "$CAS_VACIO"
+assert_eq "ob_chars: la rama sin python3 ni perl cuenta CARACTERES, no bytes" \
+  "$(printf '%s' "$CAS_TXT" | ob_chars)" "$(printf '%s' "$CAS_TXT" | PATH="$CAS_DIR" ob_chars)"
+# Y el mismo conteo con el locale roto, que es el caso real: un hook lanzado por launchd o cron
+# no hereda LANG, y ahí `wc -m` volvía a contar bytes en silencio.
+assert_eq "ob_chars: el conteo no depende del locale de la máquina" \
+  "$(printf '%s' "$CAS_TXT" | ob_chars)" "$(printf '%s' "$CAS_TXT" | LC_ALL=C PATH="$CAS_DIR" ob_chars)"
+rm -rf "$CAS_DIR"
+
 # --- ob_should_renag: el recordatorio reinsiste cada 5 turnos con trabajo sin guardar ---
 assert_eq "reinsiste al 5º turno" 1 "$(ob_should_renag 5)"
 assert_eq "no reinsiste al 3º" 0 "$(ob_should_renag 3)"
@@ -689,8 +759,17 @@ grep -q '^name:' "$DTK" 2>/dev/null; assert_eq "doctor tiene name" 0 "$?"
 grep -q 'onebrain-doctor' "$DTK" 2>/dev/null; assert_eq "doctor invoca el ejecutable" 0 "$?"
 # Drift de doc: la skill enumera los chequeos para el modelo, y la regla que tiene escrita es
 # "no inventes chequeos que el comando no hizo". El inverso también aplica — un chequeo nuevo
-# que la skill no nombra es un chequeo que nadie va a explicar. Ya nos pasó con session-capture.
-for _chk in token curl parser hooks carpeta entrega conexion version; do
+# que la skill no nombra es un chequeo que nadie va a explicar. Ya nos pasó con session-capture,
+# y de vuelta con `perfil` (Task 5): esta lista vivía HARDCODEADA acá abajo, así que cuando se
+# agregó el chequeo nuevo a doctor-lib.sh el test se quedó mudo — no había nada que lo obligara
+# a enterarse. La lista ahora sale de la FUENTE REAL y no de la memoria de quien escribe el
+# test: la clave es el primer campo de cada línea que un `ob_doc_*` de verdad emite
+# (`printf 'clave|estado|...'` en doctor-lib.sh), así que el chequeo que alguien agregue mañana
+# sin documentar tira esto abajo solo, sin que nadie tenga que acordarse de tocar este archivo.
+CHEQUEOS_REALES=$(grep -oE "printf '[a-z_]+\|" "$ROOT/core/scripts/doctor-lib.sh" \
+  | sed "s/printf '//; s/|\$//" | sort -u)
+[ -n "$CHEQUEOS_REALES" ]; assert_eq "se pudo derivar la lista de chequeos reales de doctor-lib.sh" 0 "$?"
+for _chk in $CHEQUEOS_REALES; do
   grep -q "\*\*$_chk\*\*" "$DTK" 2>/dev/null
   assert_eq "la skill doctor documenta el chequeo '$_chk'" 0 "$?"
 done
@@ -1668,6 +1747,50 @@ elif sh "$DIR/stop-guard-ritmo-test.sh" >/dev/null 2>&1; then
   PASS=$((PASS+1))
 else
   FAIL=$((FAIL+1)); printf 'FAIL: stop-guard-ritmo-test.sh — corrélo suelto para ver el detalle: sh tests/stop-guard-ritmo-test.sh\n'
+fi
+
+# --- biblioteca de skills ---
+. "$ROOT/core/scripts/skills-lib.sh"
+
+# El perfil sale como JSON de una línea, con el so real de esta máquina.
+PERFIL=$(ob_perfil_maquina)
+case "$PERFIL" in
+  '{"so":"'*'","arch":"'*'","tiene":['*']}') assert_eq "perfil con forma de JSON" 1 1 ;;
+  *) assert_eq "perfil con forma de JSON" 1 0 ;;
+esac
+
+# Un binario que existe en toda máquina POSIX tiene que aparecer en `tiene`.
+OB_SKILLS_BINARIOS="sh no-existe-este-binario-xyz"
+case "$(ob_perfil_maquina)" in
+  *'"sh"'*) assert_eq "detecta un binario presente" 1 1 ;;
+  *) assert_eq "detecta un binario presente" 1 0 ;;
+esac
+case "$(ob_perfil_maquina)" in
+  *no-existe-este-binario-xyz*) assert_eq "no inventa un binario ausente" 1 0 ;;
+  *) assert_eq "no inventa un binario ausente" 1 1 ;;
+esac
+unset OB_SKILLS_BINARIOS
+
+# El destino cuelga del perfil de Claude activo, no de $HOME a secas.
+OB_HOST_CONFIG_DIR=/tmp/ob-test-perfil
+assert_eq "destino = <perfil>/skills" "/tmp/ob-test-perfil/skills" "$(ob_skills_dir)"
+unset OB_HOST_CONFIG_DIR
+
+# El manifest cuelga del estado del perfil, igual que el token y los pendientes. Sin esto, dos
+# cuentas de Claude en la misma computadora comparten la lista de lo instalado y la segunda
+# borra lo de la primera. Se apoya en ob_state_dir de state-dir.sh, no en una copia propia.
+ONE_BRAIN_STATE_DIR=/tmp/ob-test-estado
+assert_eq "manifest = <estado>/skills.json" "/tmp/ob-test-estado/skills.json" "$(ob_skills_manifest)"
+unset ONE_BRAIN_STATE_DIR
+
+# La BAJADA (bajar, verificar sha256, escribir, sacar) corre aparte porque necesita un server
+# levantado, y este runner no levanta ninguno. Mismo patrón que las otras baterías de arriba.
+if [ ! -f "$DIR/skills-test.sh" ]; then
+  FAIL=$((FAIL+1)); printf 'FAIL: falta tests/skills-test.sh (desapareció la batería de la bajada de skills)\n'
+elif sh "$DIR/skills-test.sh" >/dev/null 2>&1; then
+  PASS=$((PASS+1))
+else
+  FAIL=$((FAIL+1)); printf 'FAIL: skills-test.sh — corrélo suelto para ver el detalle: sh plugin/tests/skills-test.sh\n'
 fi
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"

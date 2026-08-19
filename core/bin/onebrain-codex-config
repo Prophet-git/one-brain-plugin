@@ -39,7 +39,9 @@ RE_SECCION="^[[:space:]]*\[[[:space:]]*mcp_servers[[:space:]]*\.[[:space:]]*[\"'
 # verdad) contra el que está escrito en la config de Codex y, si difieren, reescribe. Sin
 # archivo de token no hace nada: no hay con qué reconciliar y borrar la config sería peor.
 if [ "$TOKEN" = "--reconciliar" ]; then
-  ARCHIVO="${ONE_BRAIN_TOKEN_FILE:-$HOME/.config/one-brain/token}"
+  OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+  . "$OB_BIN_DIR/../scripts/state-dir.sh"
+  ARCHIVO="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
   [ -r "$ARCHIVO" ] && [ -s "$ARCHIVO" ] || exit 0
   # Misma limpieza que scripts/headers.sh en el paquete de Claude Code: espacios, CRLF, NUL y
   # los bytes de los 3 BOM. Allá el token se limpia en CADA conexión; acá se escribe UNA vez en

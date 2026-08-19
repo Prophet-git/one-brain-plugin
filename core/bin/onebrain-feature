@@ -1,7 +1,9 @@
 #!/bin/sh
 # onebrain-feature <slug>: exit 0 si el feature está activo (o ausente = default ON),
 # exit 1 si está explícitamente en false. Lee ~/.config/one-brain/features.json.
-FILE="$HOME/.config/one-brain/features.json"
+OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+. "$OB_BIN_DIR/../scripts/state-dir.sh"
+FILE="$(ob_state_dir)/features.json"
 SLUG="$1"
 [ -n "$SLUG" ] || exit 0
 [ -r "$FILE" ] || exit 0   # sin archivo → default ON

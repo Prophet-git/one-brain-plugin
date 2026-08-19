@@ -6,7 +6,7 @@
 # El formato es fijo a propósito: el ejecutable lo imprime como reporte y la skill lo lee para
 # explicarle al usuario qué hacer. Ningún chequeo modifica nada — el doctor diagnostica.
 
-ob_doc_token_file() { printf '%s' "${ONE_BRAIN_TOKEN_FILE:-$HOME/.config/one-brain/token}"; }
+ob_doc_token_file() { printf '%s' "${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"; }
 
 # ¿Hay token guardado y legible? Nunca imprime el token: solo su presencia y longitud.
 ob_doc_token() {
@@ -269,9 +269,24 @@ ob_doc_captura() {
   fi
 }
 
+# ¿En qué perfil y con qué cerebro está corriendo esta instalación? Existe porque con dos
+# cerebros en la misma máquina, "no me guarda nada" y "me guarda en el cerebro equivocado" se
+# ven igual desde afuera.
+ob_doc_perfil() {
+  d=$(ob_state_dir)
+  c=$(ob_cerebro_de_token "$d/token")
+  if ob_token_heredado 2>/dev/null; then
+    printf 'perfil|aviso|perfil %s, cerebro %s — el token lo heredó de la máquina; %s <token> lo separa\n' \
+      "$(ob_profile_name "$(ob_host_config_dir)")" "${c:-sin token}" "$(ob_skill_cmd connect)"; return
+  fi
+  printf 'perfil|ok|perfil %s, cerebro %s, estado en %s\n' \
+    "$(ob_profile_name "$(ob_host_config_dir)")" "${c:-sin token}" "$d"
+}
+
 # Corre todos los chequeos, en orden de "qué mirar primero".
 ob_doc_todos() {
   ob_doc_token
+  ob_doc_perfil
   ob_doc_dependencias
   ob_doc_parser
   ob_doc_hooks_activos

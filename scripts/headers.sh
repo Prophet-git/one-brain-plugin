@@ -35,10 +35,37 @@ BASE=$(printf '%s' "$BASE" | tr '\\' '/')
 REASON=""
 TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-}"
 if [ -z "$TOKEN_FILE" ]; then
-  if [ -n "$BASE" ]; then
-    TOKEN_FILE="$BASE/.config/one-brain/token"
-  else
+  if [ -z "$BASE" ]; then
     REASON="one-brain: no encontré la carpeta de tu usuario (ni HOME ni USERPROFILE están definidos). Seteá ONE_BRAIN_TOKEN o ONE_BRAIN_TOKEN_FILE a mano, o corré /one-brain:doctor para más detalle."
+  else
+    # La resolución por perfil vive en core/scripts/state-dir.sh (fuente única con el resto del
+    # plugin: si esto y ob_state_dir se separan, el arranque lee un cerebro y las tools escriben
+    # en otro). Si no se puede sourcear —instalación incompleta— se cae a la ruta de siempre en
+    # vez de dejar la conexión sin token.
+    OB_HDR_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+    if [ -r "$OB_HDR_DIR/../core/scripts/state-dir.sh" ]; then
+      . "$OB_HDR_DIR/../core/scripts/state-dir.sh"
+      # El MCP se conecta por su cuenta, sin pasar por el hook de arranque (session-start-lib.sh)
+      # ni esperarlo: en un perfil recién creado no está garantizado que el hook corra ANTES de
+      # esta conexión. Sin esta llamada acá también, esa primera conexión encontraría el cajón
+      # vacío (todavía no heredó) y se quedaría sin token en silencio, aunque la máquina sí tenga
+      # uno para heredar -- exactamente lo que la herencia existe para evitar. Silenciosa ante
+      # fallo e idempotente, igual que en el arranque.
+      #
+      # ob_state_dir() resuelve el perfil con cksum/awk/basename/sed y varios subshells -- caro,
+      # y esto corre en CADA conexión del MCP (el motivo de que este archivo esté separado de
+      # capture-lib.sh, ver cabecera de state-dir.sh). ob_heredar_token la vuelve a calcular
+      # puertas adentro, así que sin lo de abajo se resolvía DOS VECES por conexión (medido:
+      # +71% en un perfil no-default). Se calcula UNA sola vez acá y se fija en
+      # ONE_BRAIN_STATE_DIR, que ob_state_dir() ya mira primero y devuelve tal cual (gana sobre
+      # todo) -- la llamada de adentro de ob_heredar_token queda gratis (una lectura de
+      # variable), sin tocar ob_state_dir() ni su contrato para el resto del core.
+      ONE_BRAIN_STATE_DIR=$(ob_state_dir)
+      ob_heredar_token 2>/dev/null
+      TOKEN_FILE="$ONE_BRAIN_STATE_DIR/token"
+    else
+      TOKEN_FILE="$BASE/.config/one-brain/token"
+    fi
   fi
 fi
 

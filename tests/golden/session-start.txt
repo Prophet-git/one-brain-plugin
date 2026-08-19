@@ -1,4 +1,6 @@
-One Brain: el día 2026-07-30 quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H "Authorization: Bearer $(cat ~/.config/one-brain/token)" <URL>/api/synthesis
+One Brain · Cerebro: test
+
+One Brain: el día 2026-07-30 quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H "Authorization: Bearer $(cat "<HOME>/.config/one-brain/token")" <URL>/api/synthesis
 
 Puede que tengas reuniones nuevas de Granola sin sincronizar al cerebro. Si querés, activá la skill reuniones: trae las nuevas, las guarda y te ofrece destilar decisiones/avances.
 
@@ -7,6 +9,8 @@ Para guardar en One Brain usá el comando: <REPO>/plugin/scripts/../bin/onebrain
 Quedaste a mitad del wizard de alta.
 
 Fran te mencionó en una nota de ayer.
+
+Instalé Leer WhatsApp. Probala pidiéndome: "fijate qué mandó Nacho"
 
 Bienvenido a One Brain.
 

@@ -14,11 +14,13 @@ Diagnosticás la instalación de esta máquina y devolvés un veredicto claro co
 
 2. Leé la salida y armá el reporte. Los chequeos son:
    - **token** — si hay credencial guardada en esta máquina.
+   - **perfil** — en qué perfil de esta máquina corre la sesión y qué cerebro tiene conectado (el nombre del cerebro sale del token, sin llamar al server). Si el token todavía es el heredado del perfil de siempre — no se reconectó éste aparte —, avisa en `aviso` con el comando para separarlos.
    - **curl** — si está la herramienta que usa el plugin para hablar con el cerebro.
    - **parser** — si los hooks pueden leer lo que les manda Claude Code (si esto falla, la captura automática no anda aunque todo lo demás esté bien).
    - **hooks** — si `disableAllHooks` está apagando todos los hooks del sistema.
    - **carpeta** — si hay un `CLAUDE.md` con las reglas de One Brain donde la persona está trabajando. Vale por los dos caminos de alta: el de la terminal lo deja en la carpeta fija que arma el instalador, y el de la app lo deja en la carpeta que la persona eligió. Antes se miraba sólo la carpeta fija, así que a todo el camino de la app le daba "no existe" para siempre.
    - **entrega** — si el contexto que el cerebro manda al arrancar la sesión llegó entero o hubo que recortarlo por tamaño. Es la falla que más contexto se comió históricamente y desde afuera no se ve.
+   - **captura** — cuántas sesiones anteriores quedaron con trabajo sin destilar.
    - **conexion** — si el cerebro responde con este token.
    - **version** — qué versión está corriendo, comparada con la que Claude Code tiene instalada. Si actualizó el plugin sin reiniciar, la sesión sigue usando la vieja y da `aviso`.
 
@@ -29,11 +31,13 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 | Falla | Qué le decís que haga |
 |---|---|
 | `token` | Pedile el token a quien le dio acceso y corré `/one-brain:connect <token>` |
+| `perfil` en `aviso` | No es una falla: el token de este perfil es el heredado del de siempre. Si esta persona quiere un cerebro DISTINTO acá, que corra `/one-brain:connect <token>` con el suyo — a partir de ahí este perfil deja de usar el heredado |
 | `curl` | Instalar curl (en Windows: usar Git Bash o WSL, que ya lo traen) |
 | `parser` | Actualizar el plugin (ver "Cómo se actualiza", abajo) y reiniciar Claude Code |
 | `hooks` | Sacar `"disableAllHooks": true` de `~/.claude/settings.json` y reiniciar |
 | `carpeta` | Primero preguntale cómo se dio de alta, porque el arreglo es distinto. **Si usa la terminal**: abrir Claude Code parado en la carpeta que armó el instalador (o volver a correrlo). **Si usa la app de escritorio y no toca la consola**: NO le mandes el instalador (`curl … \| bash`) — no tiene dónde pegarlo. Decile que el arreglo es dejar las reglas escritas en el `CLAUDE.md` de esta carpeta, y que te lo puede pedir a vos en el próximo mensaje (el doctor diagnostica, no toca archivos). El texto exacto es el que le dio la web al darse de alta, en `/onboard`; si no lo tiene a mano, la sección "One Brain" tiene que decir `brain_context` al arrancar, `brain_search` para consultar y `brain_save` al cerrar, agregada al final y sin pisar lo que el archivo ya tenga |
 | `entrega` en `aviso` | Nada se perdió: el material recortado se vuelve a pedir en el próximo arranque. Si pasa en todos los arranques, desde el panel se pueden apagar los bloques que no use (Digest del equipo, Resumen de sesión) para que el que sí le importa entre completo; si no, avisarle al operador |
+| `captura` en `aviso` | No es un problema: hay trabajo de sesiones anteriores esperando destilarse. Ofrecele guardarlo ahora |
 | `conexion` 401/403 | El token no vale más: pedir uno nuevo y volver a conectar |
 | `conexion` sin respuesta | Probar la red/VPN y reintentar; si sigue, avisarle al operador |
 | `version` en `aviso` | Reiniciar Claude Code. Actualizó el plugin con la sesión abierta: quedó corriendo la versión vieja y los comandos nuevos no están disponibles. No hace falta volver a instalar nada |

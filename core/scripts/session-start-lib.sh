@@ -28,6 +28,20 @@
 # pedir que alguno se la olvide. (Que se registre justo antes del printf en vez de justo
 # después no cambia nada: va a un archivo, no a stdout.)
 
+# La biblioteca de skills (instalar lo que la persona pidió desde el panel). Se carga con el
+# mismo patrón que usa capture-lib.sh para state-dir.sh: $0 apunta al adaptador, así que las
+# candidatas cuelgan de ahí. Va con red de seguridad porque este arranque no puede romperse
+# nunca: si el archivo no está, ob_skills_aplicar queda como un no-op silencioso y la sesión
+# sale igual, sin skills, en vez de morir con un "command not found" a mitad del saludo.
+ob_ss_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+for _obskl in "$ob_ss_dir/skills-lib.sh" "$ob_ss_dir/../scripts/skills-lib.sh" "$ob_ss_dir/../core/scripts/skills-lib.sh"; do
+  [ -r "$_obskl" ] && { . "$_obskl"; break; }
+done
+if ! command -v ob_skills_aplicar >/dev/null 2>&1; then
+  ob_skills_aplicar() { :; }
+  ob_perfil_maquina() { printf '{"so":"","arch":"","tiene":[]}'; }
+fi
+
 # Techo del bloque entero. NO se toca sin medir: si el arranque se pasa, Claude Code reemplaza
 # todo por un preview de 2 KB y un puntero a un archivo que nadie lee — el contexto del equipo
 # desaparece sin que nadie se entere. Medimos que el techo de Codex son 10.000 bytes (y que
@@ -44,7 +58,7 @@ OB_MAX_TOTAL=8000
 # perdía avisos de menciones en silencio. Lee el cache del arranque anterior, que es
 # exactamente lo que corresponde para decidir si vale la pena llamar.
 ob_feat_on() {
-  FFILE="$HOME/.config/one-brain/features.json"
+  FFILE="$(ob_state_dir)/features.json"
   [ -r "$FFILE" ] || return 0
   ! grep -qE "\"$1\"[[:space:]]*:[[:space:]]*false" "$FFILE" 2>/dev/null
 }
@@ -61,10 +75,10 @@ ob_feat_on() {
 ob_append() { [ -n "$1" ] || return 0; if [ -n "$CONTEXT" ]; then CONTEXT="$CONTEXT$NL$NL$1"; else CONTEXT="$1"; fi; }
 # ob_clip_block deja el resultado en $OB_BLOCK en vez de imprimirlo: usado en $(...) el registro
 # del recorte se perdería en el subshell, que es justo el dato que la telemetría necesita.
-ob_clip_block() { # <texto> <max_chars> <nombre-del-bloque>
+ob_clip_block() { # <texto> <max_chars> <nombre-del-bloque> [puntero]
   OB_BLOCK=""
   [ -n "$1" ] || return 0
-  OB_BLOCK=$(printf '%s' "$1" | ob_clip "$2")
+  OB_BLOCK=$(printf '%s' "$1" | ob_clip "$2" "${4:-}")
   # ob_clip marca el recorte en el propio texto: usar esa marca (y no una estimación de
   # tamaño) es medir lo que efectivamente pasó, no lo que suponemos que pasó.
   case "$OB_BLOCK" in
@@ -75,7 +89,80 @@ ob_clip_block() { # <texto> <max_chars> <nombre-del-bloque>
     *'[...recortado'*) OB_CLIPPED="$OB_CLIPPED${OB_CLIPPED:+,}$3" ;;
   esac
 }
-ob_append_clipped() { ob_clip_block "$1" "$2" "$3"; ob_append "$OB_BLOCK"; }
+ob_append_clipped() { ob_clip_block "$1" "$2" "$3" "${4:-}"; ob_append "$OB_BLOCK"; }
+
+# El comando exacto que trae las menciones enteras. Una sola definición: la usan el puntero del
+# bloque y el de cada mención, y si se separan, uno de los dos queda mandando a una URL vieja.
+ob_ptr_menciones() {
+  printf 'traelas enteras con: curl -s -H "Authorization: Bearer $(cat %s/token)" %s/api/mentions' \
+    "$(ob_state_dir)" "${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
+}
+
+# Recorta CADA mención por separado en vez del bloque entero.
+#
+# Con el recorte de bloque, la primera mención se comía el presupuesto y la segunda no aparecía
+# nunca: así se perdieron dos menciones durante un día entero. Vale más ver los dos titulares
+# enteros —quién te la dejó y de qué va— que una mención y media.
+#
+# La UNIDAD es la mención, no el renglón. /api/mentions no prohíbe saltos de línea en el body
+# (schema `z.string().min(1).max(2000)`, sin restricción; el composer del panel es un textarea
+# que invita a escribir párrafos; el endpoint arma "- autor: body" con el body CRUDO, sin
+# sanitizar) — y las dos menciones reales que motivaron esta tarea son multilínea, una con un
+# párrafo aparte tipo "OJO que...". Agrupar por renglón dejaba pasar esas líneas de continuación
+# SIN TOCAR (no arrancan con "- "), inflaba el bloque entero, y cuando entraba el tope de
+# seguridad la segunda mención desaparecía igual: el mismo bug, entrando por otra puerta. Un
+# ítem arranca en una línea que empieza con "- " y se extiende hasta la próxima línea que
+# empiece con "- " (o el final del bloque); se recorta COMO UNIDAD, con sus saltos internos.
+ob_clip_menciones() { # <texto> <max_por_mencion>
+  _obptr=$(ob_ptr_menciones)
+  _obimax="$2"
+  _obnl='
+'
+  _obitem=""
+  _obinitem=0
+
+  # Se lee desde un ARCHIVO, no de un pipe: "cmd | while read...done" corre el while en un
+  # SUBSHELL, y el ÚLTIMO ítem (el que no tiene un "- " siguiente que dispare su cierre adentro
+  # del loop) se perdería al salir — ninguna variable tocada adentro sobrevive afuera de un
+  # subshell. Leyendo con "< archivo" el while corre en ESTE shell: _obitem/_obinitem llegan
+  # intactos después del loop, y el último ítem se puede emitir ahí.
+  _obtmp=$(mktemp 2>/dev/null) || _obtmp="${TMPDIR:-/tmp}/ob-menciones-$$"
+  printf '%s\n' "$1" > "$_obtmp" 2>/dev/null
+
+  while IFS= read -r _oblinea; do
+    case "$_oblinea" in
+      "- "*)
+        # Arranca una mención nueva: si había una acumulada, se cierra y se recorta COMO UNIDAD
+        # (con sus saltos internos) antes de arrancar la que sigue. Separador explícito ("\n")
+        # entre ítems SIEMPRE, se haya recortado o no: sin esto, el cartel de una mención
+        # recortada queda pegado al "- " de la siguiente sin salto de línea.
+        if [ "$_obinitem" = 1 ]; then
+          printf '%s' "$_obitem" | ob_clip "$_obimax" "$_obptr"
+          printf '\n'
+        fi
+        _obitem="$_oblinea"
+        _obinitem=1
+        ;;
+      *)
+        if [ "$_obinitem" = 1 ]; then
+          # Continuación DENTRO de la mención actual (incluye líneas vacías: un párrafo aparte,
+          # un "OJO que..." separado, etc.) — se acumula con su salto interno, NO se emite
+          # todavía: se recorta como parte del ítem completo, nunca sola.
+          _obitem="$_obitem$_obnl$_oblinea"
+        else
+          # Todavía no vimos ninguna mención: es el encabezado ("🔔 Tenés N mención(es):"),
+          # pasa intacto.
+          printf '%s\n' "$_oblinea"
+        fi
+        ;;
+    esac
+  done < "$_obtmp"
+  rm -f "$_obtmp" 2>/dev/null
+
+  # El ÚLTIMO ítem no tiene un "- " siguiente adentro del loop que dispare su cierre: se emite
+  # acá, una sola vez, con el mismo recorte que cualquier otro.
+  [ "$_obinitem" = 1 ] && printf '%s' "$_obitem" | ob_clip "$_obimax" "$_obptr"
+}
 
 # ob_session_start — el arranque entero. Lee el input del hook de stdin (los dos programas lo
 # pasan igual: un JSON con session_id, cwd, transcript_path...). Silencioso ante cualquier
@@ -96,9 +183,13 @@ ob_session_start() {
   # en el contexto de arranque. Nunca en silencio.
   HOOK_OK=$(ob_selftest)
 
-  TOKEN_FILE="$HOME/.config/one-brain/token"
+  # Un perfil nuevo hereda el token de la máquina una sola vez (ver state-dir.sh).
+  ob_heredar_token 2>/dev/null
+
+  TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
   BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
+  SKILLSMSG=""
   if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
     HAS_TOKEN=1
     TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE")
@@ -118,7 +209,7 @@ ob_session_start() {
       PLUGIN_VERSION=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_obm" 2>/dev/null | head -n1)
       [ -n "$PLUGIN_VERSION" ] && break
     done
-    GREETED_MARKER="$HOME/.config/one-brain/greeted"
+    GREETED_MARKER="$(ob_state_dir)/greeted"
     DO_HELLO=0; [ ! -e "$GREETED_MARKER" ] && DO_HELLO=1
 
     # Las 5-6 llamadas de arranque son INDEPENDIENTES entre sí → se disparan en PARALELO (curl en
@@ -149,6 +240,12 @@ ob_session_start() {
     curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features"  > "$OB_TMP/features"  2>/dev/null &
     # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario conecta.
     [ "$DO_HELLO" = 1 ] && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/hello" > "$OB_TMP/hello" 2>/dev/null &
+    # Biblioteca de skills: qué pidió instalar esta persona y qué puede correr esta computadora.
+    # Sólo en Claude Code: Codex comparte este core pero no tiene carpeta de skills, así que
+    # pedirle el sync sería trabajo al pedo y un aviso que no puede cumplir.
+    [ "${OB_CLIENT:-claude}" = "claude" ] && \
+      curl -s --max-time 8 -X POST -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+        -d "$(ob_perfil_maquina)" "$URL/api/skills/sync" > "$OB_TMP/skills" 2>/dev/null &
 
     wait  # esperar a que TODAS las llamadas en background terminen antes de parsear
 
@@ -170,7 +267,7 @@ ob_session_start() {
     # De la síntesis sólo viene el día pendiente. El material se pide recién cuando la persona
     # dice que sí — con la orden concreta que va en el aviso de abajo.
     SYN_DAY=$(ob_json_field period_key "$(cat "$OB_TMP/synthesis" 2>/dev/null)")
-    [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat ~/.config/one-brain/token)\" $URL/api/synthesis"
+    [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat \"$(ob_state_dir)/token\")\" $URL/api/synthesis"
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
     MATERIAL=$(ob_json_field material "$(cat "$OB_TMP/material" 2>/dev/null)")
@@ -178,7 +275,7 @@ ob_session_start() {
     # First-run: parsear el saludo y apagar el marker para siempre (exista o no la respuesta).
     if [ "$DO_HELLO" = 1 ]; then
       HELLO=$(sed -n 's/.*"hello":"\(.*\)"}/\1/p' "$OB_TMP/hello" 2>/dev/null)
-      mkdir -p "$HOME/.config/one-brain" 2>/dev/null
+      mkdir -p "$(ob_state_dir)" 2>/dev/null
       printf '' > "$GREETED_MARKER" 2>/dev/null
     fi
 
@@ -186,11 +283,21 @@ ob_session_start() {
     FEATURES=$(cat "$OB_TMP/features" 2>/dev/null)
     case "$FEATURES" in
       *'"features"'*)
-        mkdir -p "$HOME/.config/one-brain" 2>/dev/null
+        mkdir -p "$(ob_state_dir)" 2>/dev/null
         printf '%s' "$FEATURES" \
           | sed -n 's/.*"features":[[:space:]]*\({.*}\)}/\1/p' \
-          > "$HOME/.config/one-brain/features.json" ;;
+          > "$(ob_state_dir)/features.json" ;;
     esac
+
+    # Instalar lo que vino. La escritura pasa acá y NO en background a propósito: si el arranque
+    # termina antes, la skill queda a medias y el aviso miente. Lo único que ob_skills_aplicar
+    # imprime es el aviso por skill instalada, así que su stdout ES el mensaje.
+    if [ "${OB_CLIENT:-claude}" = "claude" ]; then
+      SKILLSYNC=$(cat "$OB_TMP/skills" 2>/dev/null)
+      case "$SKILLSYNC" in
+        *'"instalar"'*) SKILLSMSG=$(ob_skills_aplicar "$URL" "$TOKEN" "$SKILLSYNC" 2>/dev/null) ;;
+      esac
+    fi
 
     rm -rf "$OB_TMP" 2>/dev/null
   else
@@ -290,6 +397,13 @@ ob_session_start() {
   OB_BLOCK=""     # salida de ob_clip_block: el bloque ya recortado
 
   # --- Primero lo que no puede perderse: avisos operativos e instrucciones (todos cortos) ---
+  # En qué cerebro está escribiendo esta sesión. Va PRIMERO y sin recorte: escribir al cerebro
+  # equivocado es el único daño de esta feature que no se puede deshacer.
+  ob_append "$(ob_linea_cerebro)"
+  # Y si el token vino heredado, cómo separarse.
+  if ob_token_heredado 2>/dev/null; then
+    ob_append "Este perfil está usando el token de la máquina. Si querés otro cerebro acá, corré $(ob_skill_cmd connect) <token>."
+  fi
   ob_append "$NOTOKEN"                   # nunca se conectó: sin esto el arranque es mudo
   ob_append "$TOKENWARN"                 # token vencido: sin esto nada funciona
   ob_append "$HOOKWARN"                  # captura rota en este entorno
@@ -302,13 +416,39 @@ ob_session_start() {
 
   # --- Después el material, que es lo recortable ---
   ob_append_clipped "$RESUME" 2500 resume        # dónde quedaste
-  ob_append_clipped "$MENTIONS" 800 menciones    # lo que te dejó un compañero
-  ob_append_clipped "$MATERIAL" 600 material     # documentos que subiste y no estudiaste
+  # Las menciones se recortan por ítem (ob_clip_menciones), no en bloque. El tope de bloque se
+  # mantiene como red de seguridad, pero ya no es lo que decide qué se ve.
+  #
+  # 800, no 700 (Task 8): las menciones tienen PRIORIDAD sobre el brief, así que una vez que el
+  # techo dejó de dispararse (bajando el brief, ver más abajo) se usó el margen sobrante para
+  # subirles el tope A ELLAS primero, de a 100, remidiendo cada vez contra el server real. En
+  # 800 el arranque entero mide 7753 chars con el peor caso REAL reproducido (marker de trabajo
+  # sin guardar en su último aviso + recordatorio de reuniones del día, los dos disparados a la
+  # vez) — 247 de margen contra el techo de 8000. En 900 el mismo peor caso pega el techo
+  # (8066 — el propio recorte de seguridad se pasa por el largo de su cartel, ver comentario de
+  # ob_clip en capture-lib.sh), así que 900 se probó y se descartó. No es un techo teórico: dos
+  # mediciones reales, subiendo de a 100 como pide la tarea. Detalle en task-8-report.md.
+  ob_append_clipped "$(ob_clip_menciones "$MENTIONS" 800)" 2400 menciones "$(ob_ptr_menciones)"   # lo que te dejó un compañero
+  ob_append_clipped "$MATERIAL" 600 material "pedile al usuario correr $(ob_skill_cmd estudiar)"   # documentos que subiste y no estudiaste
+  ob_append_clipped "$SKILLSMSG" 400 skills      # skills que se acaban de instalar en esta máquina
   ob_append_clipped "$HELLO" 1200 hello          # bienvenida (sólo la primera vez)
   if [ -n "$BRIEF" ]; then
     # El brief va ÚLTIMO: es el bloque más grande y el único que el techo puede morder sin costo
     # (se vuelve a pedir en el próximo arranque).
-    ob_clip_block "# One Brain — contexto del equipo$NL$BRIEF" 3500 brief
+    #
+    # 1300, no 3500 (Task 8): 3500 salió de una estimación, nunca se midió contra el material
+    # real de producción. Medido: con 3500 y las dos menciones reales de Fran (1123 y 1857
+    # caracteres sin recortar) más el resto del arranque, el bloque entero daba 8066 caracteres
+    # — SE PASABA del techo de 8000, que es justo la falla catastrófica que esta tarea existe
+    # para prevenir (Claude Code reemplaza el bloque entero por un preview de 2 KB). El criterio
+    # ya estaba decidido: si hay que sacrificar caracteres, salen de acá, no de las menciones.
+    # 1300 es el número más chico que hizo falta bajar para que el techo no se dispare NI
+    # SIQUIERA en el peor caso real reproducido (marker de trabajo sin guardar en su aviso más
+    # largo + recordatorio de reuniones, los dos a la vez): 7753 de 8000, con 247 de margen.
+    # Con el brief real de prod esto sigue mostrando misión + método + 2-3 decisiones vigentes
+    # antes de cortar — no queda vacío, y lo que se pierde se vuelve a pedir entero en el
+    # próximo arranque. Detalle y las mediciones completas (antes/después) en task-8-report.md.
+    ob_clip_block "# One Brain — contexto del equipo$NL$BRIEF" 1300 brief
     # T1.3 — HACER VISIBLE EL RETORNO.
     # Todo esto entra como additionalContext de un hook: lo consume el MODELO, y la persona nunca
     # ve que lo que Claude "ya sabe" lo escribió un compañero. El momento "ajá" del producto es
@@ -320,7 +460,7 @@ ob_session_start() {
     #
     # Y se adapta al material: el brief viene de buildTeamBrief, que formatea cada entrada como
     # "- **Título** ([[Autor]] · 24/07/2026): ..." — pero el autor sale de users.name, que puede
-    # ser null, y encima el recorte a 3500 puede dejar afuera la parte firmada. Por eso el chequeo
+    # ser null, y encima el recorte a 1300 puede dejar afuera la parte firmada. Por eso el chequeo
     # es sobre el texto YA RECORTADO ($OB_BLOCK), no sobre el brief entero: pedirle al modelo que
     # nombre a una persona que no está en el material es pedirle que la invente, y una atribución
     # falsa hace más daño que ninguna.

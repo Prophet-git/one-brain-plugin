@@ -17,10 +17,16 @@ GOLDEN="$DIR/golden/session-start.txt"
 # La base del server mock se normaliza igual y por el mismo motivo: el puerto ahora es EFÍMERO
 # (lo asigna el sistema), así que un golden con el puerto adentro fallaría en cada corrida. Se
 # reemplaza SOLO "http://127.0.0.1:<puerto>"; el "/api/synthesis" que sigue se compara tal cual.
+#
+# $FAKEHOME se normaliza por el mismo motivo desde que el aviso de síntesis pendiente dejó de
+# decir "~/.config/one-brain/token" (fijo) y pasó a embeber la ruta ABSOLUTA que devuelve
+# ob_state_dir() — correcto (es justo lo que arregla que el aviso apunte al perfil real y que
+# sobreviva un HOME con espacios), pero ese HOME es un mktemp distinto en cada corrida: sin
+# normalizar, el golden nunca podría quedar fijo.
 normalizar() {
   python3 -c 'import sys
-texto = sys.stdin.read().replace(sys.argv[1], "<REPO>").replace(sys.argv[2], "<URL>")
-sys.stdout.write(texto)' "$REPO" "$1"
+texto = sys.stdin.read().replace(sys.argv[1], "<REPO>").replace(sys.argv[2], "<URL>").replace(sys.argv[3], "<HOME>")
+sys.stdout.write(texto)' "$REPO" "$1" "$FAKEHOME"
 }
 
 # --- mock en puerto efímero ------------------------------------------------------------------
@@ -85,9 +91,18 @@ mkdir -p "$FAKEHOME/.config/one-brain"
 printf 'ob_test_0000000000000000' > "$FAKEHOME/.config/one-brain/token"
 
 BASE="http://127.0.0.1:$PUERTO"
+# OB_HOST_CONFIG_DIR adentro del HOME falso es OBLIGATORIO desde que el arranque instala skills:
+# sin esto, correr la suite te escribe una skill "demo" en tu ~/.claude/skills de verdad.
 SALIDA=$(printf '{"session_id":"test-fijo","cwd":"/tmp"}' \
-  | HOME="$FAKEHOME" ONE_BRAIN_URL="$BASE" sh "$ROOT/scripts/session-start.sh" 2>/dev/null \
+  | HOME="$FAKEHOME" ONE_BRAIN_URL="$BASE" OB_HOST_CONFIG_DIR="$FAKEHOME/.claude" \
+    sh "$ROOT/scripts/session-start.sh" 2>/dev/null \
   | normalizar "$BASE")
+
+# La skill del sync tiene que haber quedado escrita en el HOME falso, con su contenido.
+if [ "$(cat "$FAKEHOME/.claude/skills/demo/SKILL.md" 2>/dev/null)" != "hola" ]; then
+  echo "FAIL: el arranque no escribió la skill del sync en \$OB_HOST_CONFIG_DIR/skills/demo"
+  limpiar; trap - EXIT INT TERM; exit 1
+fi
 
 limpiar
 trap - EXIT INT TERM

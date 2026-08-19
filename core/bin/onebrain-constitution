@@ -1,7 +1,9 @@
 #!/bin/sh
 # Persiste la constitución del equipo en One Brain (requiere ser admin del tenant).
 # Uso: onebrain-constitution set <archivo.md>
-DIR="$HOME/.config/one-brain"
+OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+. "$OB_BIN_DIR/../scripts/state-dir.sh"
+DIR=$(ob_state_dir)
 FILE="$DIR/token"
 URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 

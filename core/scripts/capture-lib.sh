@@ -1,6 +1,28 @@
 #!/bin/sh
 # Funciones puras de captura, compartidas por stop-guard.sh y los tests.
 
+# La resolución del directorio de estado vive aparte (headers.sh también la necesita).
+ob_cl_dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+for _obsd in "$ob_cl_dir/state-dir.sh" "$ob_cl_dir/../scripts/state-dir.sh" "$ob_cl_dir/../core/scripts/state-dir.sh"; do
+  [ -r "$_obsd" ] && { . "$_obsd"; break; }
+done
+
+# Red de seguridad: el `for` de arriba se apoya en $0 para ubicar state-dir.sh, y $0 sólo es
+# el script que se está corriendo cuando capture-lib.sh se invoca como archivo EJECUTADO (los
+# adaptadores, los bins). Cuando alguien lo sourcea desde `sh -c '. capture-lib.sh; ...'` —el
+# patrón que usan las ~15 baterías de plugin/tests/run.sh—, $0 vale "sh" (o el nombre del
+# intérprete), `dirname -- "$0"` da ".", ninguna candidata existe, y ob_state_dir queda SIN
+# DEFINIR: no un error ruidoso, un "command not found" en cascada que el doctor y el challenge
+# de token confunden con "todo bien". Si tras el `for` la función sigue sin existir, se define
+# acá con el comportamiento de SIEMPRE (perfil único, ignora CLAUDE_CONFIG_DIR): peor que
+# resolver el perfil, pero consistente con el global constraint de "ante la duda, caer al
+# comportamiento actual" — nunca reventar el arranque de una sesión. NO borrar por parecer
+# redundante: sin esto, cualquier test o script que sourcee capture-lib.sh vía `sh -c` rompe en
+# silencio.
+if ! command -v ob_state_dir >/dev/null 2>&1; then
+  ob_state_dir() { printf '%s/.config/one-brain' "$(printf '%s' "${HOME:-$USERPROFILE}" | tr '\\' '/')"; }
+fi
+
 # ob_host — en qué programa corre esta copia del core: "codex" | "claude".
 #
 # El core es UNO y se vendoriza dentro de cada paquete, así que un mensaje suyo no puede
@@ -63,26 +85,113 @@ ob_pending_dir() {
   printf '%s' "$(ob_config_dir)/pending"
 }
 
-# ob_clip <max> — recorta stdin a <max> CARACTERES (no bytes) y avisa que recortó.
+# ob_clip <max> [puntero] — recorta stdin a <max> CARACTERES (no bytes) y avisa que recortó.
 # Por qué caracteres: cortar por bytes parte los acentos al medio y deja mojibake, en un
 # producto que escribe todo en español. Misma cascada que ob_json_field (python3→perl→awk),
 # y como último recurso cut -c, que en la práctica también corta por carácter con locale UTF-8.
+#
+# El PUNTERO es el segundo argumento porque el cartel genérico llegó a ser falso: decía
+# "traelo entero con brain_get, el id está arriba" para TODOS los bloques, y en el de menciones
+# eso mandaba a la puerta equivocada (brain_get trae una memoria, no las menciones, y el id de
+# arriba es el del handoff). Dos menciones estuvieron un día entero llegando cortadas con una
+# instrucción que llevaba a otro lado. Cada bloque dice ahora cómo recuperarse a sí mismo.
 ob_clip() {
   _obn="$1"
+  _obp="${2:-traelo entero con brain_get, el id está arriba}"
+
+  # El input se guarda en un archivo ANTES de intentar nada: la red de seguridad de más abajo
+  # (ronda 2 de revisión) necesita poder devolver el texto ORIGINAL si la herramienta elegida
+  # sale con las manos vacías, y stdin sólo se puede leer una vez -- si lo consume python3/perl/
+  # awk y esa herramienta falla a mitad de camino, ya no queda de dónde recuperarlo.
+  _obin=$(mktemp 2>/dev/null) || _obin="${TMPDIR:-/tmp}/ob-clip-in-$$"
+  cat > "$_obin" 2>/dev/null
+  _obout=$(mktemp 2>/dev/null) || _obout="${TMPDIR:-/tmp}/ob-clip-out-$$"
+
   if command -v python3 >/dev/null 2>&1; then
     python3 -c 'import sys
-n = int(sys.argv[1]); s = sys.stdin.read()
-sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado — traelo entero con brain_get, el id está arriba]")' "$_obn" 2>/dev/null
-    return
+n = int(sys.argv[1]); p = sys.argv[2]; s = sys.stdin.read()
+sys.stdout.write(s if len(s) <= n else s[:n].rstrip() + "\n[...recortado — " + p + "]")' \
+      "$_obn" "$_obp" < "$_obin" > "$_obout" 2>/dev/null
+  elif command -v perl >/dev/null 2>&1; then
+    # decode(ONE_BRAIN_PTR): -CSD decodifica los FILEHANDLES (stdin/stdout/streams abiertos con
+    # open), pero %ENV no pasa por ahí — le llega a Perl como bytes crudos, sin el flag utf8
+    # adentro. Antes el cartel vivía escrito DIRECTO en el código fuente del script (bajo
+    # -Mutf8, que sólo decodifica LITERALES del propio script), así que nunca pasó por %ENV y
+    # nunca mostró el problema. En cuanto el puntero se volvió un argumento variable, cualquier
+    # acento en el texto (el propio "está" del cartel de siempre incluido) salía mojibake: cada
+    # carácter multibyte se tomaba como dos bytes latin1 sueltos y se reencodeaba de nuevo al
+    # imprimir por un stream que SÍ es utf8. Verificado a mano forzando esta rama del PATH.
+    ONE_BRAIN_CLIP="$_obn" ONE_BRAIN_PTR="$_obp" perl -Mutf8 -CSD -MEncode=decode -0777 -ne '
+      my $n = $ENV{ONE_BRAIN_CLIP}; my $p = decode("UTF-8", $ENV{ONE_BRAIN_PTR});
+      if (length($_) <= $n) { print $_ } else { my $t = substr($_, 0, $n); $t =~ s/\s+$//; print $t, "\n[...recortado — ", $p, "]" }' \
+      < "$_obin" > "$_obout" 2>/dev/null
+  elif command -v awk >/dev/null 2>&1; then
+    # Atajo por tamaño en BYTES antes de tocar awk siquiera: si el archivo entra entero bajo el
+    # tope EN BYTES, entra seguro también en CARACTERES (un carácter nunca pesa menos de un
+    # byte), así que se copia tal cual con `cat` -- sin pasar por awk, sin reconstrucción línea
+    # por línea ni regex de por medio, cero riesgo de perder o sumar un byte (ronda 2: el join
+    # por NR==1 de la ronda anterior arreglaba el "\n" espurio de "corto" pero de paso se comía
+    # un "\n" final GENUINO cuando el texto entraba completo, ej. "linea1\nlinea2\n" salía sin
+    # el último salto -- este atajo lo esquiva del todo para el caso más común).
+    _obsz=$(wc -c < "$_obin" 2>/dev/null | tr -d ' ')
+    case "$_obsz" in ''|*[!0-9]*) _obsz="" ;; esac
+    if [ -n "$_obsz" ] && [ "$_obsz" -le "$_obn" ] 2>/dev/null; then
+      cat "$_obin" > "$_obout" 2>/dev/null
+    else
+      # LC_ALL=C SÓLO para esta invocación (variable puesta antes del comando, no exportada: no
+      # afecta a nada más en el script). Sin esto, el sub() del trim de whitespace de más abajo
+      # puede caer justo en medio de un carácter UTF-8 partido por el propio corte, y el motor
+      # de regex de awk intenta convertirlo a wide-char (towc), falla, y el proceso sale con
+      # código 2 -- con todo bajo 2>/dev/null eso es STDOUT VACÍO: el bloque entero desaparece
+      # del contexto, sin cartel, sin marca de recorte en la telemetría, sin rastro. Confirmado
+      # por el revisor: barrido de puntos de corte sobre texto en español, 6 de 101 terminaron
+      # vacíos. Exactamente el modo de falla que esta tarea existe para eliminar, pero peor que
+      # el mojibake que reemplaza.
+      #
+      # Con LC_ALL=C, awk deja de intentar tratar los bytes como UTF-8 -- así que length()/
+      # substr() sobre `buf` vuelven a operar sobre BYTES crudos, no caracteres. El corte de
+      # abajo compensa esto CONTANDO caracteres a mano (recorriendo `buf` una vez, tratando
+      # cualquier byte que NO sea de continuación -- 0x80-0xBF -- como el inicio de uno nuevo):
+      # así el corte SIEMPRE cae justo antes del inicio de un carácter, nunca a la mitad. Esto
+      # además iguala el criterio con python3/perl (que cortan por caracteres de verdad): antes
+      # de esta ronda esta rama cortaba por BYTES sin más (comprobado a mano: length() de
+      # "ñandúes" bajo locale UTF-8 daba 9, no 7 -- la implementación de awk de esta máquina
+      # nunca fue character-aware pese al comentario que lo suponía), así que un mismo `n` podía
+      # dar un carácter menos que python3/perl cuando el corte caía cerca de un acento. Verificado
+      # contra python3, barrido de 30 puntos de corte sobre texto con tildes: 0 diferencias.
+      ONE_BRAIN_PTR="$_obp" LC_ALL=C awk -v n="$_obn" '
+        { buf = (NR == 1) ? $0 : buf "\n" $0 }
+        END {
+          len = length(buf)
+          count = 0; cutpos = 0
+          for (i = 1; i <= len; i++) {
+            b = substr(buf, i, 1)
+            if (b < "\200" || b > "\277") {                  # inicio de carácter (ascii o lead byte)
+              count++
+              if (count == n + 1 && cutpos == 0) cutpos = i - 1   # ya se juntaron n caracteres: cortar acá
+            }
+          }
+          if (count <= n) {
+            printf "%s", buf
+          } else {
+            t = substr(buf, 1, cutpos)
+            sub(/[[:space:]]+$/, "", t)
+            printf "%s\n[...recortado — %s]", t, ENVIRON["ONE_BRAIN_PTR"]
+          }
+        }' < "$_obin" > "$_obout" 2>/dev/null
+    fi
   fi
-  if command -v perl >/dev/null 2>&1; then
-    ONE_BRAIN_CLIP="$_obn" perl -Mutf8 -CSD -0777 -ne '
-      my $n = $ENV{ONE_BRAIN_CLIP};
-      if (length($_) <= $n) { print $_ } else { my $t = substr($_, 0, $n); $t =~ s/\s+$//; print $t, "\n[...recortado — traelo entero con brain_get, el id está arriba]" }' 2>/dev/null
-    return
+
+  # Red de seguridad, para las TRES ramas: la lección de esta tarea entera es que ningún fallo
+  # de una herramienta externa puede volver a traducirse en pérdida silenciosa de contexto. Si
+  # el resultado quedó vacío pero el input NO lo era, se devuelve el texto CRUDO sin recortar --
+  # sin cartel, sin marca de recorte, pero PRESENTE -- antes que un bloque que se evapora sin
+  # dejar rastro. Esto es justo lo que costó dos menciones perdidas un día entero.
+  if [ ! -s "$_obout" ] && [ -s "$_obin" ]; then
+    cat "$_obin" > "$_obout" 2>/dev/null
   fi
-  awk -v n="$_obn" '{ buf = buf $0 "\n" }
-    END { if (length(buf) <= n) printf "%s", buf; else printf "%s\n[...recortado — traelo entero con brain_get, el id está arriba]", substr(buf, 1, n) }' 2>/dev/null
+  cat "$_obout" 2>/dev/null
+  rm -f "$_obin" "$_obout" 2>/dev/null
 }
 
 # ob_chars — cuenta los CARACTERES de stdin (no los bytes). Misma cascada y mismo motivo que
@@ -98,9 +207,26 @@ ob_chars() {
     perl -Mutf8 -CSD -0777 -ne 'print length($_)' 2>/dev/null
     return
   fi
-  # último recurso: wc -m cuenta caracteres si el locale es UTF-8 (si no, cae a bytes, que
-  # sigue siendo una medida útil aunque no exacta).
-  wc -m 2>/dev/null | tr -d ' \n'
+  # último recurso: NO wc -m. wc -m sólo cuenta caracteres si el locale ACTIVO es UTF-8 -- en
+  # C/POSIX (el locale con el que corre un hook lanzado sin el entorno interactivo heredado:
+  # launchd, cron, o cualquier arranque donde LANG no llegó seteado) cae a BYTES en silencio.
+  # Es el MISMO bug que se encontró y arregló en la rama awk de ob_clip: medido acá con
+  # LC_ALL=C forzado, "ñandúes come café..." (83 caracteres reales) daba 93 -- un 12% inflado
+  # sobre texto español con tildes. Con OB_MAX_TOTAL=8000 como único gate del techo, ese
+  # inflado es justo lo que puede disparar "techo=si" en una máquina sin python3 ni perl con
+  # contenido que en los otros dos entornos entraba entero -- la telemetría mentiría y la
+  # decisión de recortar se tomaría mal justo donde más importa.
+  #
+  # En vez de contar con una herramienta que interpreta el texto (wc, awk en modo normal, cuyo
+  # comportamiento depende del locale), se CUENTAN BYTES pero se descartan antes los que NUNCA
+  # son el primero de un carácter: los de continuación utf-8 (0x80-0xBF, todo byte que empieza
+  # con los bits "10"). Lo que sobrevive es exactamente un byte por carácter -- el líder, sea
+  # ASCII o el primero de un multibyte -- así que el conteo no depende de qué locale tenga la
+  # máquina. LC_ALL=C en las dos puntas (tr y wc) para que ninguna reinterprete los bytes como
+  # texto bajo el locale real y termine, de nuevo, contando caracteres en vez de bytes líderes.
+  # Verificado contra python3 (len() nativo) sobre texto con tildes, con y sin salto de línea
+  # final, y con la cadena vacía: 0 diferencias en las tres condiciones y en las tres ramas.
+  LC_ALL=C tr -d '\200-\277' 2>/dev/null | LC_ALL=C wc -c 2>/dev/null | tr -d ' \n'
 }
 
 # ob_log_delivery <session> <chars> <bytes> <bloques-recortados> <techo si|no>
@@ -149,7 +275,18 @@ except Exception:
     return
   fi
   if command -v perl >/dev/null 2>&1; then
-    printf '%s' "$_obj" | ONE_BRAIN_JF="$_obf" perl -MJSON::PP -0777 -ne 'my $d=eval{decode_json($_)}; print $d->{$ENV{ONE_BRAIN_JF}}//"" if ref $d eq "HASH"' 2>/dev/null
+    # -CO (sólo STDOUT en utf8), NO -CSD. decode_json() devuelve CARACTERES, y un print a un
+    # stream sin capa utf8 los baja a latin1 byte a byte: "quedó" salía "qued\xf3", que ni
+    # siquiera es UTF-8 válido — el mismo mojibake que ya apareció en la rama perl de ob_clip.
+    # -CSD arreglaría la salida pero rompe la entrada: decodifica también STDIN, y decode_json
+    # espera BYTES, así que falla el parseo y la función devuelve VACÍO en silencio (peor: se
+    # pierde el campo entero en vez de verse raro). Por eso se decodifica sólo la salida.
+    #
+    # Esta rama es la que corre en Windows/Git Bash, donde jq casi nunca está y python3 tampoco
+    # es seguro — o sea que el mojibake le tocaba justo al entorno que no podemos probar acá, en
+    # campos que no son decorativos: transcript_path con un acento apunta a un archivo que no
+    # existe y la captura se queda muda.
+    printf '%s' "$_obj" | ONE_BRAIN_JF="$_obf" perl -CO -MJSON::PP -0777 -ne 'my $d=eval{decode_json($_)}; print $d->{$ENV{ONE_BRAIN_JF}}//"" if ref $d eq "HASH"' 2>/dev/null
     return
   fi
   # último recurso: sed tolerante a espacios tras los ":" (sirve para compacto y para el
@@ -174,10 +311,10 @@ ob_selftest() {
   fi
 }
 
-# ob_config_dir: carpeta de config estable del plugin (tokens, cola, markers).
+# ob_config_dir: carpeta de estado de ESTE perfil. El nombre se conserva porque lo llaman
+# ob_pending_dir, ob_queue_dir, onebrain-save y el doctor; la resolución vive en state-dir.sh.
 ob_config_dir() {
-  BASE="${HOME:-$USERPROFILE}"
-  printf '%s' "$BASE/.config/one-brain"
+  ob_state_dir
 }
 
 # ob_queue_dir: cola de guardados pendientes de reintento (offline / server caído).

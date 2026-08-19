@@ -1,21 +1,24 @@
 #!/bin/sh
 # Manejo del token local de One Brain.
-DIR="$HOME/.config/one-brain"
+OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+. "$OB_BIN_DIR/../scripts/state-dir.sh"
+DIR=$(ob_state_dir)
 FILE="$DIR/token"
 URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 case "$1" in
   set)
     [ -n "$2" ] || { echo "uso: onebrain-token set <token>" >&2; exit 1; }
-    # El token es UNO por máquina: guardar otro deja a la persona afuera del cerebro anterior.
+    # El token es UNO por perfil: guardar otro deja a la persona afuera del cerebro anterior.
     # Reconectar al mismo (se rotó la llave, se reinstaló el plugin) es rutina y no se avisa.
     if [ -r "$FILE" ]; then
       ANTERIOR=$(tr -d ' \t\r\n' < "$FILE")
       if [ -n "$ANTERIOR" ] && [ "$ANTERIOR" != "$2" ]; then
-        echo "one-brain: ojo, esta máquina ya estaba conectada a otro cerebro y lo estás reemplazando."
-        echo "one-brain: sólo se puede estar en un cerebro por máquina. Para volver al anterior necesitás su token."
+        echo "one-brain: ojo, este perfil ya estaba conectado a otro cerebro y lo estás reemplazando."
+        echo "one-brain: cada perfil tiene su propio cerebro. Para volver al anterior necesitás su token."
       fi
     fi
     mkdir -p "$DIR"; printf '%s' "$2" > "$FILE"; chmod 600 "$FILE"
+    rm -f "$DIR/heredado" 2>/dev/null
     echo "one-brain: token guardado en $FILE" ;;
   get)
     [ -r "$FILE" ] && cat "$FILE" || { echo "sin token" >&2; exit 1; } ;;
