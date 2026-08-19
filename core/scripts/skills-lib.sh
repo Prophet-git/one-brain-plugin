@@ -15,7 +15,14 @@ if ! command -v ob_host_config_dir >/dev/null 2>&1; then
   ob_host_config_dir() { printf '%s' "${OB_HOST_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-$(printf '%s' "${HOME:-$USERPROFILE}" | tr '\\' '/')/.claude}}"; }
 fi
 if ! command -v ob_state_dir >/dev/null 2>&1; then
-  ob_state_dir() { printf '%s/.config/one-brain' "$(printf '%s' "${HOME:-$USERPROFILE}" | tr '\\' '/')"; }
+  ob_state_dir() {
+    # ONE_BRAIN_STATE_DIR primero, igual que la versión buena de state-dir.sh: es un override
+    # explícito del entorno y el fallback no tiene por qué ignorarlo. Sin esta línea, un script
+    # que sourcee esta librería por un camino donde $0 no ubica a state-dir.sh le escribe el
+    # manifest en el HOME REAL a quien lo corra, aunque haya aislado el entorno a propósito.
+    if [ -n "${ONE_BRAIN_STATE_DIR:-}" ]; then printf '%s' "$ONE_BRAIN_STATE_DIR"; return; fi
+    printf '%s/.config/one-brain' "$(printf '%s' "${HOME:-$USERPROFILE}" | tr '\\' '/')"
+  }
 fi
 
 # Los binarios y apps que el catálogo puede llegar a pedir. Se chequean TODOS y se informa qué

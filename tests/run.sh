@@ -1783,6 +1783,23 @@ ONE_BRAIN_STATE_DIR=/tmp/ob-test-estado
 assert_eq "manifest = <estado>/skills.json" "/tmp/ob-test-estado/skills.json" "$(ob_skills_manifest)"
 unset ONE_BRAIN_STATE_DIR
 
+# La red de seguridad de skills-lib.sh (la que define ob_state_dir cuando state-dir.sh no se
+# pudo cargar) tiene que respetar ONE_BRAIN_STATE_DIR igual que la buena. Sin eso, cualquier
+# script que sourcee la librería por un camino donde $0 no ubica a state-dir.sh escribe el
+# manifest en el HOME REAL aunque el entorno diga otra cosa — que es exactamente lo que pasó
+# corriendo una prueba de humo: dejó un ~/.config/one-brain/skills.json en la máquina de quien
+# la corría, con una skill que nunca instaló.
+ONE_BRAIN_STATE_DIR=/tmp/ob-test-aislado
+(
+  # En un subshell, con las funciones borradas, para forzar el camino del fallback.
+  unset -f ob_state_dir ob_host_config_dir 2>/dev/null
+  . "$ROOT/core/scripts/skills-lib.sh" 2>/dev/null
+  printf '%s' "$(ob_skills_manifest)"
+) > /tmp/ob-fallback-manifest 2>/dev/null
+assert_eq "el fallback respeta ONE_BRAIN_STATE_DIR" "/tmp/ob-test-aislado/skills.json" "$(cat /tmp/ob-fallback-manifest)"
+rm -f /tmp/ob-fallback-manifest
+unset ONE_BRAIN_STATE_DIR
+
 # mlx-whisper se instala en un venv y su ejecutable se llama mlx_whisper, con guion BAJO. Con
 # `command -v mlx-whisper` no aparecía ni con el venv activado, así que el panel apagaba la card
 # de la primera skill del catálogo en una computadora que sí puede correrla — el falso negativo
