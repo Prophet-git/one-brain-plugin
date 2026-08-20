@@ -567,6 +567,44 @@ assert_eq "doctor: CLAUDE.md sin reglas de One Brain no cuenta => aviso" "aviso"
 printf '%s' "$(carpeta_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | grep -qi 'curl'
 assert_eq "doctor: el aviso no le tira un curl a quien quizá no usa terminal" 1 "$?"
 
+# --- doctor / reglas: un CLAUDE.md con la POLÍTICA VIEJA no puede dar todo en verde ---
+# Hasta el 20-ago-2026 las reglas se escribían sueltas, sin marcadores, así que una vez
+# instaladas no había forma de actualizarlas: cambiar la política servía sólo para los clientes
+# nuevos y a los viejos el doctor les decía "carpeta ok" mientras su Claude seguía pidiendo el
+# OK antes de cada guardado. Este chequeo es el que rompe ese falso verde.
+reglas_desde() { # <cwd> [env extra...] -> imprime la línea del chequeo (o vacío)
+  _cwd=$1; shift
+  ( cd "$_cwd" || exit; env "$@" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_reglas' )
+}
+REG_VIEJO=$(mktemp -d); REG_NUEVO=$(mktemp -d); REG_V1=$(mktemp -d)
+printf '## One Brain\nLlamá `brain_context` al arrancar y proponé `brain_save`, esperá el OK.\n' \
+  > "$REG_VIEJO/CLAUDE.md"
+printf '<!-- one-brain:reglas v2 -->\n## One Brain\n`brain_context` / `brain_save`\n<!-- /one-brain:reglas -->\n' \
+  > "$REG_NUEVO/CLAUDE.md"
+printf '<!-- one-brain:reglas v1 -->\n`brain_context` `brain_save`\n<!-- /one-brain:reglas -->\n' \
+  > "$REG_V1/CLAUDE.md"
+
+assert_eq "doctor: reglas sin marcador (las de antes del 20-ago) => aviso" "aviso" \
+  "$(estado "$(reglas_desde "$REG_VIEJO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+assert_eq "doctor: reglas en la versión vigente => ok" "ok" \
+  "$(estado "$(reglas_desde "$REG_NUEVO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+assert_eq "doctor: reglas de una versión anterior con marcador => aviso" "aviso" \
+  "$(estado "$(reglas_desde "$REG_V1" ONE_BRAIN_DIR="$DOC_HOME/no-existe")")"
+
+# El aviso tiene que decir QUÉ hacer, no sólo que algo está viejo. Un diagnóstico sin próximo
+# paso es lo mismo que no diagnosticar: la persona no sabe de dónde sacar el texto nuevo.
+printf '%s' "$(reglas_desde "$REG_VIEJO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")" | grep -qi 'panel'
+assert_eq "doctor: el aviso de reglas dice dónde conseguir la versión nueva" 0 "$?"
+
+# Sin reglas en ninguna parte NO emite: de eso ya se queja `carpeta`, y dos avisos por el mismo
+# problema hacen que se ignoren los dos.
+assert_eq "doctor: sin reglas en ningún lado, el chequeo de reglas se calla" "" \
+  "$(reglas_desde "$OTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe")"
+
+# Y el chequeo viaja en la corrida completa: si no está en ob_doc_todos, no lo ve nadie.
+( cd "$REG_VIEJO" || exit; env ONE_BRAIN_DIR="$DOC_HOME/no-existe" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_todos' 2>/dev/null | grep -q '^reglas|' )
+assert_eq "doctor: el chequeo de reglas está en ob_doc_todos" 0 "$?"
+
 # ob_doc_claudemd_cerca sale 1 (y no imprime) cuando no hay nada: el que llama distingue.
 ( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
 assert_eq "ob_doc_claudemd_cerca: sin CLAUDE.md con reglas => exit 1" 1 "$?"

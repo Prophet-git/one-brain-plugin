@@ -94,6 +94,48 @@ ob_doc_reglas_en() { # <archivo>
   return 0
 }
 
+# La versión de reglas que este plugin considera vigente. Tiene que coincidir con
+# MARCA_REGLAS_VERSION de src/lib/instrucciones-desktop.ts: plugin y server se publican juntos,
+# así que subir el número en los dos lados es parte del mismo cambio de política.
+OB_REGLAS_VERSION=${OB_REGLAS_VERSION:-2}
+
+# ob_doc_reglas_version <archivo>: imprime la versión de reglas que tiene ese CLAUDE.md.
+# Imprime 0 si tiene reglas de One Brain pero SIN marcador — o sea, las de antes del
+# 20-ago-2026, que son justamente las que nadie puede actualizar porque no están delimitadas.
+# No imprime nada (y sale 1) si el archivo no tiene reglas de One Brain.
+ob_doc_reglas_version() { # <archivo>
+  ob_doc_reglas_en "$1" || return 1
+  ob_v=$(sed -n 's/.*<!-- *one-brain:reglas v\([0-9][0-9]*\) *-->.*/\1/p' "$1" 2>/dev/null | head -1)
+  [ -n "$ob_v" ] || ob_v=0
+  printf '%s' "$ob_v"
+}
+
+# ¿Las reglas que tiene instaladas quedaron atrás? Un CLAUDE.md con la política vieja pasa
+# TODOS los chequeos de este doctor: nombra brain_context y brain_save, así que "está
+# configurado". Pero le está pidiendo a su Claude cosas que el producto ya cambió — hasta el
+# 20-ago-2026, proponer y esperar el OK antes de cada guardado, que es la instrucción que hacía
+# que se perdieran memorias. Verde con la política vieja adentro es el peor de los dos mundos:
+# el usuario cree que está al día.
+# Chequeo propio (una línea, como todos): ¿las reglas instaladas están al día? Si no hay reglas
+# en ninguna parte no dice nada — de eso ya se queja `carpeta`, y dos avisos por el mismo
+# problema hacen que se ignoren los dos.
+ob_doc_reglas() {
+  ob_arch_r=$(ob_doc_reglas_archivo)
+  ob_f=""
+  if ob_f=$(ob_doc_claudemd_cerca); then :; else
+    ob_d="${ONE_BRAIN_DIR:-$HOME/Documents/one-brain}"
+    if ob_doc_reglas_en "$ob_d/$ob_arch_r"; then ob_f="$ob_d/$ob_arch_r"; else return 0; fi
+  fi
+  ob_ver=$(ob_doc_reglas_version "$ob_f") || return 0
+  if [ "$ob_ver" -ge "$OB_REGLAS_VERSION" ] 2>/dev/null; then
+    printf 'reglas|ok|las reglas de %s están en la versión vigente (v%s)\n' "$ob_f" "$ob_ver"
+  elif [ "$ob_ver" = "0" ]; then
+    printf 'reglas|aviso|las reglas de One Brain en %s son de una versión anterior (no tienen marcador de versión): le piden a tu Claude cosas que el producto ya cambió, como esperar tu OK antes de cada guardado. Actualizalas desde el panel → Herramientas → "Actualizá las reglas"\n' "$ob_f"
+  else
+    printf 'reglas|aviso|las reglas de One Brain en %s están en la versión %s y la vigente es la %s. Actualizalas desde el panel → Herramientas\n' "$ob_f" "$ob_ver" "$OB_REGLAS_VERSION"
+  fi
+}
+
 # Cómo se llama, en ESTE programa, el archivo donde viven las reglas de la carpeta. Los dos
 # cargan el del directorio donde se abrió y también los de arriba, pero con distinto nombre:
 # preguntar por el del otro programa reporta como problema una instalación sana, y encima manda
@@ -291,6 +333,7 @@ ob_doc_todos() {
   ob_doc_parser
   ob_doc_hooks_activos
   ob_doc_carpeta
+  ob_doc_reglas
   ob_doc_entrega
   ob_doc_captura
   ob_doc_conexion
