@@ -42,7 +42,7 @@ Guardá con `brain_save` **apenas algo CIERRA — no solo al final de la sesión
 
 **Una cosa cerrada, una memoria.** Lo que todavía se está discutiendo no se guarda: si la idea sigue cambiando, esperá a que cierre. Guardar cada versión intermedia deja tres o cuatro memorias que dicen cosas distintas sobre lo mismo, y el que busque dentro de dos semanas no va a saber cuál vale — el ruido lo paga todo el equipo, no la sesión que lo generó. Si algo que YA guardaste cambió, no sumes otra memoria: guardá la nueva con `supersedes` apuntando a la vieja.
 
-- **Propone-y-confirma**: antes de escribir, mostrá el resumen y pedí OK — "voy a guardar esto: […] · ¿ok / editás / descartás?". Con el OK, llamá `brain_save`.
+- **Guardá y avisá, no pidas permiso**: llamá `brain_save` y decí en UNA línea qué guardaste — "Guardé: [título]". Si te avisan que eso no iba, corregilo con `supersedes` y no lo repitas. Pedir OK antes de cada guardado suena prolijo pero pierde memorias: la persona está enfocada en otra cosa, no contesta, y lo que cerró nunca entra.
 - Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, pasá `supersedes` con el id de la vieja.
 - **NO** guardes trivialidades, pasos intermedios, verificaciones de estado ("confirmé que anda", "los tests pasan") ni datos personales sensibles. La prueba rápida: **si dentro de dos semanas nadie lo buscaría, no va**.
 
