@@ -605,6 +605,28 @@ assert_eq "doctor: sin reglas en ningún lado, el chequeo de reglas se calla" ""
 ( cd "$REG_VIEJO" || exit; env ONE_BRAIN_DIR="$DOC_HOME/no-existe" sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_todos' 2>/dev/null | grep -q '^reglas|' )
 assert_eq "doctor: el chequeo de reglas está en ob_doc_todos" 0 "$?"
 
+# --- doctor / reglas en el CLAUDE.md GLOBAL ---
+# Es el destino que RECOMIENDA el propio producto desde el 28-jul-2026 (el token y el plugin son
+# de la máquina, no de una carpeta). El doctor sólo miraba la carpeta y sus padres, así que a
+# quien seguía esa recomendación le decía "no hay un CLAUDE.md con las reglas" desde cualquier
+# directorio que no fuera el suyo: mandaba a arreglar una instalación sana.
+GLOBAL_CFG=$(mktemp -d)
+printf '<!-- one-brain:reglas v2 -->\n## One Brain\n`brain_context` / `brain_save`\n<!-- /one-brain:reglas -->\n' \
+  > "$GLOBAL_CFG/CLAUDE.md"
+assert_eq "doctor: reglas en el CLAUDE.md global => carpeta ok" "ok" \
+  "$(estado "$(carpeta_desde "$NEUTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe" CLAUDE_CONFIG_DIR="$GLOBAL_CFG")")"
+assert_eq "doctor: la versión se lee también en el global" "ok" \
+  "$(estado "$(reglas_desde "$NEUTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe" CLAUDE_CONFIG_DIR="$GLOBAL_CFG")")"
+printf '%s' "$(carpeta_desde "$NEUTRO" ONE_BRAIN_DIR="$DOC_HOME/no-existe" CLAUDE_CONFIG_DIR="$GLOBAL_CFG")" | grep -q "$GLOBAL_CFG/CLAUDE.md"
+assert_eq "doctor: dice que las encontró en el global, no en otro lado" 0 "$?"
+
+# Y el de la CARPETA gana sobre el global: si la persona está trabajando en un espacio con sus
+# propias reglas, ésas son las que su Claude va a leer primero.
+GLOBAL_VIEJO=$(mktemp -d)
+printf '## One Brain\n`brain_context` y `brain_save`, esperá el OK.\n' > "$GLOBAL_VIEJO/CLAUDE.md"
+printf '%s' "$(carpeta_desde "$REG_NUEVO" ONE_BRAIN_DIR="$DOC_HOME/no-existe" CLAUDE_CONFIG_DIR="$GLOBAL_VIEJO")" | grep -q "$REG_NUEVO/CLAUDE.md"
+assert_eq "doctor: las reglas de la carpeta ganan sobre las del global" 0 "$?"
+
 # ob_doc_claudemd_cerca sale 1 (y no imprime) cuando no hay nada: el que llama distingue.
 ( cd "$NEUTRO" || exit; sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; . '"$ROOT"'/core/scripts/doctor-lib.sh; ob_doc_claudemd_cerca' >/dev/null 2>&1 )
 assert_eq "ob_doc_claudemd_cerca: sin CLAUDE.md con reglas => exit 1" 1 "$?"

@@ -144,8 +144,36 @@ ob_doc_reglas_archivo() {
   if [ "$(ob_host)" = "codex" ]; then printf 'AGENTS.md'; else printf 'CLAUDE.md'; fi
 }
 
+# El archivo de reglas GLOBAL del programa: ~/.claude/CLAUDE.md en Claude Code,
+# ~/.codex/AGENTS.md en Codex.
+#
+# ES EL DESTINO POR DEFAULT DEL PRODUCTO desde el 28-jul-2026 (ver promptReglas en
+# src/lib/instrucciones-desktop.ts): el token y el plugin son de la máquina, y el hook corre en
+# todas las sesiones, así que atar las reglas a un solo repo deja al resto recibiendo contexto
+# sin guardar nunca nada. Pero el doctor sólo miraba la carpeta y sus padres: a quien seguía la
+# recomendación del propio producto le decía "no hay un CLAUDE.md con las reglas" desde
+# cualquier directorio que no fuera el de trabajo. Un falso negativo que manda a arreglar una
+# instalación sana — el mismo error que ya se había corregido para el camino de la app, ahora
+# por el otro lado.
+# Mismo patrón que skills-lib.sh: no se asume que state-dir.sh esté cargado. capture-lib.sh lo
+# sourcea apoyándose en $0, y $0 no siempre ubica al repo (un `sh -c '. capture-lib.sh'` deja
+# $0 en "sh"). Sin este fallback la función salía por la puerta de atrás y el chequeo quedaba
+# mudo justo donde importa — verificado: los tests del plugin lo cazaron.
+ob_doc_reglas_global() {
+  ob_cfg=""
+  command -v ob_host_config_dir >/dev/null 2>&1 && ob_cfg=$(ob_host_config_dir 2>/dev/null)
+  if [ -z "$ob_cfg" ]; then
+    ob_cfg="${OB_HOST_CONFIG_DIR:-${CLAUDE_CONFIG_DIR:-${HOME:-$USERPROFILE}/.claude}}"
+  fi
+  [ -n "$ob_cfg" ] || return 1
+  if [ "$(ob_host)" = "codex" ]; then ob_g="$ob_cfg/AGENTS.md"; else ob_g="$ob_cfg/CLAUDE.md"; fi
+  ob_doc_reglas_en "$ob_g" || return 1
+  printf '%s' "$ob_g"
+}
+
 # El archivo de reglas con las de One Brain más cercano al directorio donde se está trabajando,
-# subiendo por los padres. Un cerebro configurado en la carpeta madre igual aplica.
+# subiendo por los padres, y si no hay ninguno, el GLOBAL del programa. Un cerebro configurado
+# en la carpeta madre igual aplica, y uno configurado en el global aplica en todas.
 # Imprime la ruta y sale 0; si no hay ninguno, no imprime nada y sale 1.
 ob_doc_claudemd_cerca() { # [directorio inicial; default el actual]
   # `pwd` (builtin) y no $PWD: el hook puede haber sido invocado con un PWD heredado que ya no
@@ -158,6 +186,7 @@ ob_doc_claudemd_cerca() { # [directorio inicial; default el actual]
     [ "$ob_d" = "/" ] && break
     ob_d=$(dirname "$ob_d")
   done
+  ob_doc_reglas_global && return 0
   return 1
 }
 
