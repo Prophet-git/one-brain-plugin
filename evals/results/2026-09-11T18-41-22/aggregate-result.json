@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.269",
+  "startedAt": "2026-09-11T21:41:23.445Z",
+  "durationSeconds": 15,
+  "costUsd": 0.1090995,
+  "partial": false,
+  "suite": {
+    "root": "/private/var/folders/_c/3t3yv0w57hg6w5zddymzvzdr0000gn/T/ob-eval.iHC394/one-brain",
+    "ablation": "none",
+    "caseFilter": "pregunta-suelta-no-guarda",
+    "threshold": 1,
+    "concurrency": 1,
+    "plugins": [
+      {
+        "name": "one-brain",
+        "version": "0.1.663",
+        "path": "/private/var/folders/_c/3t3yv0w57hg6w5zddymzvzdr0000gn/T/ob-eval.iHC394/one-brain"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "pregunta-suelta-no-guarda",
+      "dir": "evals/pregunta-suelta-no-guarda",
+      "source": "prose",
+      "promptMarkdown": "¿Cómo paso un string a número en JavaScript?",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 8,
+      "graders": [
+        {
+          "name": "contesta",
+          "type": "llm",
+          "weight": 1,
+          "graderMarkdown": "PASS si explica al menos una forma correcta: Number(), parseInt/parseFloat o el + unario.\nFAIL si no contesta la pregunta.",
+          "config": {
+            "criteria": "PASS si explica al menos una forma correcta: Number(), parseInt/parseFloat o el + unario.\nFAIL si no contesta la pregunta.",
+            "focus": "last_message"
+          }
+        },
+        {
+          "name": "no-guarda",
+          "type": "tool_used",
+          "weight": 1,
+          "config": {
+            "tool": "mcp__plugin_one-brain_one-brain__brain_save",
+            "min": 0,
+            "max": 0,
+            "arm": "both"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 1,
+            "passed": true,
+            "turns": 1,
+            "costUsd": 0.1090995,
+            "judgeCostUsd": 0.001911,
+            "durationSeconds": 15,
+            "startedAt": "2026-09-11T21:41:23.468Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-SKJtyi/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "one-brain",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "brain_claves",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_context",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_entities",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_entity",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_get",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_material",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_mention",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_project",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_pulse",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_save",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_search",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_timeline",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_verify",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 0,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "contesta",
+                "passed": true,
+                "weight": 1,
+                "explanation": "judge votes: PASS PASS PASS",
+                "withOnly": false,
+                "scored": true,
+                "judgeVotes": [
+                  true,
+                  true,
+                  true
+                ],
+                "evidence": "One Brain: el cerebro trajo la decisión de que todo presupuesto sale en PDF con validez de 15 días, la escribió Carla el 15/08/2026 (nada relacionado con tu pregunta de JavaScript).\n\nPara pasar un string a número en JavaScript:\n\n**`Number()`** — la opción más directa y estricta:\n```js\nNumber(\"42\")      // 42\nNumber(\"3.14\")    // 3.14\nNumber(\"42abc\")   // NaN\nNumber(\"\")        // 0  ← ojo\n```\n\n**`parseInt()` / `parseFloat()`** — parsean desde el principio y cortan donde deja de ser número:\n```js\nparseInt(\"42px\", 10)   // 42\nparseFloat(\"3.14em\")   // 3.14\nparseInt(\"abc\", 10)    // NaN\n```\nPasá siempre la base (`10`) en `parseInt`.\n\n**Operador unario `+`** — equivalente a `Number()`, más corto:\n```js\n+\"42\"   // 42\n```\n\n### Cuál usar\n- Si el string tiene que ser un número entero y válido → `Number()` (o `+`), y validá con `Number.isNaN()`.\n- Si viene con unidades o basura al final (`\"42px\"`, input de usuario) → `parseInt` / `parseFloat`.\n\n### Validación robusta\n```js\nfunction aNumero(str) {\n  const n = Number(str);\n  return Number.isFinite(n) ? n : null;\n}\n\naNumero(\"42\")    // 42\naNumero(\"42abc\") // null\naNumero(\"\")      // 0  ← si querés que \"\" sea inválido, chequealo antes\n```\n\nUn detalle que suele morder: `Number(\"\")`, `Number(\" \")` y `Number(null)` dan `0`, no `NaN`. Si el valor viene de un `<input>`, conviene hacer `str.trim() === \"\" ? null : Number(str)`."
+              },
+              {
+                "name": "no-guarda",
+                "passed": true,
+                "weight": 1,
+                "explanation": "mcp__plugin_one-brain_one-brain__brain_save called 0x (expected 0..0)",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 1,
+        "passRate": 1
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 1,
+    "casesPassed": 1,
+    "overallScore": 1,
+    "overallPassRate": 1
+  }
+}

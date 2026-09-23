@@ -1,5 +1,14 @@
 #!/bin/sh
 # Puente al bin real, que vive en el core compartido. Existe para que las rutas que ya
 # circulan (avisos de arranque, skills, sesiones abiertas) sigan funcionando.
-DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Se resuelve el symlink antes de calcular el directorio: `dirname $0` devuelve la carpeta
+# DEL LINK, así que con un `onebrain-x` linkeado en ~/.local/bin el puente iba a buscar el core
+# al lado del link y no al lado suyo. Sin esto, tener los comandos en el PATH no funciona.
+SRC=$0
+while [ -L "$SRC" ]; do
+  ENLACE_DIR=$(CDPATH= cd -- "$(dirname -- "$SRC")" && pwd)
+  SRC=$(readlink "$SRC")
+  case $SRC in /*) ;; *) SRC="$ENLACE_DIR/$SRC" ;; esac
+done
+DIR=$(CDPATH= cd -- "$(dirname -- "$SRC")" && pwd)
 exec "$DIR/../core/bin/onebrain-doctor" "$@"

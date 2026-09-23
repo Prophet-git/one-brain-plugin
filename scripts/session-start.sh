@@ -35,6 +35,10 @@ OB_CLIENT=claude
 # en core/. Sale en el primer `[ -f marca ]` en todas las sesiones menos la primera.
 [ -x "$DIR/enable-autoupdate.sh" ] && "$DIR/enable-autoupdate.sh" >/dev/null 2>&1
 
+# Deja los comandos a mano en ~/.local/bin. La ruta de la caché lleva el número de versión
+# adentro, así que sin esto nadie puede escribir `onebrain-secret` sin ir a buscarla.
+[ -x "$DIR/link-bins.sh" ] && "$DIR/link-bins.sh" >/dev/null 2>&1
+
 ob_session_start
 
 printf '%s' "$OB_STDOUT"

@@ -1,0 +1,155 @@
+{
+  "schemaVersion": 1,
+  "claudeVersion": "2.1.269",
+  "startedAt": "2026-09-11T21:36:36.908Z",
+  "durationSeconds": 11,
+  "costUsd": 0.10656850000000001,
+  "partial": false,
+  "suite": {
+    "root": "/private/var/folders/_c/3t3yv0w57hg6w5zddymzvzdr0000gn/T/ob-eval.UsXrQi/one-brain",
+    "ablation": "none",
+    "caseFilter": "zz-sonda",
+    "threshold": 1,
+    "concurrency": 1,
+    "plugins": [
+      {
+        "name": "one-brain",
+        "version": "0.1.663",
+        "path": "/private/var/folders/_c/3t3yv0w57hg6w5zddymzvzdr0000gn/T/ob-eval.UsXrQi/one-brain"
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "zz-sonda",
+      "dir": "evals/zz-sonda",
+      "source": "mixed",
+      "promptMarkdown": "Sin usar ninguna herramienta: ¿tenés cargado un CLAUDE.md de este espacio de trabajo en tus instrucciones? Si lo tenés, copiá textual la primera línea que empieza con \"## \". Si no, decí \"NO HAY CLAUDE.MD\".",
+      "runsPerCase": 3,
+      "timeoutSeconds": 300,
+      "maxTurns": 2,
+      "graders": [
+        {
+          "name": "ve-el-claude-md",
+          "type": "regex",
+          "weight": 1,
+          "config": {
+            "target": "last_message",
+            "pattern": "Al arrancar una tarea",
+            "flags": "",
+            "match": "contains"
+          }
+        }
+      ],
+      "arms": {
+        "with": [
+          {
+            "score": 0,
+            "passed": false,
+            "turns": 1,
+            "costUsd": 0.10656850000000001,
+            "judgeCostUsd": 0,
+            "durationSeconds": 11,
+            "startedAt": "2026-09-11T21:36:36.936Z",
+            "error": null,
+            "tracePath": "/private/tmp/e-b9gDjy/out/trace.jsonl",
+            "skippedPaidGraders": false,
+            "mocks": {
+              "servers": [
+                {
+                  "server": "one-brain",
+                  "kind": "shadow",
+                  "tools": [
+                    {
+                      "tool": "brain_claves",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_context",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_entities",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_entity",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_get",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_material",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_mention",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_project",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_pulse",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_save",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_search",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_timeline",
+                      "responder": "fixed"
+                    },
+                    {
+                      "tool": "brain_verify",
+                      "responder": "fixed"
+                    }
+                  ]
+                }
+              ],
+              "warnings": [],
+              "calls": {
+                "total": 0,
+                "errors": 0,
+                "unmocked": [],
+                "costUsd": 0,
+                "replay": {
+                  "hits": 0,
+                  "misses": 0
+                }
+              }
+            },
+            "graders": [
+              {
+                "name": "ve-el-claude-md",
+                "passed": false,
+                "weight": 1,
+                "explanation": "pattern not found in last_message",
+                "withOnly": false,
+                "scored": true
+              }
+            ]
+          }
+        ]
+      },
+      "aggregates": {
+        "score": 0,
+        "passRate": 0
+      }
+    }
+  ],
+  "aggregates": {
+    "casesTotal": 1,
+    "casesPassed": 0,
+    "overallScore": 0,
+    "overallPassRate": 0
+  }
+}
