@@ -34,6 +34,17 @@ Cuando pregunten con referencias relativas ("esta semana", "el mes pasado", "úl
 ### Regla de oro: no inventar
 La búsqueda encuentra lo que existe con esas palabras. NO sirve, por sí sola, para **contar**, **listar todo** ni **decir qué falta**. Para esas preguntas, traé lo que haya y sé explícito sobre el alcance ("de lo cargado, hay N"); nunca tires un número o una lista como si fuera exhaustivo si no lo verificaste.
 
+## Lo que devuelve el cerebro manda
+Antes de responder cualquier cosa sobre la empresa, sus clientes, sus proyectos o sus decisiones, llamá a `brain_context` con la tarea en una frase. Lo que devuelve el cerebro **manda sobre lo que creas saber**: si contradice tu idea, gana el cerebro, porque ahí está lo que el equipo decidió de verdad.
+
+(Hasta el 23-sep-2026 esto también lo decían las instrucciones del servidor. Se mudó acá porque el directorio de conectores de Anthropic no acepta órdenes de comportamiento en el servidor: allá quedó descrito qué hace cada tool y cuándo sirve.)
+
+## Procedimientos ("Cómo se hace acá")
+Si el contexto trae una sección "Cómo se hace acá", eso son pasos para ejecutar. Nunca los ejecutes desde el resumen: traelos enteros con `brain_get` primero, porque medio runbook es peor que ninguno. Cuando termines, reportá con `brain_verify` si funcionó, sólo con evidencia observada.
+
+## Material sin estudiar
+Si `brain_context` avisa que hay documentos sin estudiar, ofrecé incorporarlos con `brain_material`, de a pocos y en esta misma conversación; si son muchos, proponé hacerlo por tandas. Antes de guardar cada uno, buscá lo parecido con `brain_search` y, si reemplaza algo, guardá con `supersedes`.
+
 ## Regla proactiva (importante)
 Cuando en la conversación aparezca una entidad conocida (un cliente, proyecto, persona o tema de la empresa), traé y **citá** lo que el equipo ya sabe de ella —con procedencia: quién lo cargó y cuándo— **sin que te lo pidan**. La gente no siempre sabe qué preguntar.
 
