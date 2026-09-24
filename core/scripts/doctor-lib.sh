@@ -130,9 +130,9 @@ ob_doc_reglas() {
   if [ "$ob_ver" -ge "$OB_REGLAS_VERSION" ] 2>/dev/null; then
     printf 'reglas|ok|las reglas de %s están en la versión vigente (v%s)\n' "$ob_f" "$ob_ver"
   elif [ "$ob_ver" = "0" ]; then
-    printf 'reglas|aviso|las reglas de One Brain en %s son de una versión anterior (no tienen marcador de versión): le piden a tu Claude cosas que el producto ya cambió, como esperar tu OK antes de cada guardado. Actualizalas desde el panel → Herramientas → "Actualizá las reglas"\n' "$ob_f"
+    printf 'reglas|aviso|las reglas de One Brain en %s son de una versión anterior (no tienen marcador de versión): le piden a tu Claude cosas que el producto ya cambió, como esperar tu OK antes de cada guardado. Actualizalas desde el panel → Claude → "Actualizá las reglas"\n' "$ob_f"
   else
-    printf 'reglas|aviso|las reglas de One Brain en %s están en la versión %s y la vigente es la %s. Actualizalas desde el panel → Herramientas\n' "$ob_f" "$ob_ver" "$OB_REGLAS_VERSION"
+    printf 'reglas|aviso|las reglas de One Brain en %s están en la versión %s y la vigente es la %s. Actualizalas desde el panel → Claude\n' "$ob_f" "$ob_ver" "$OB_REGLAS_VERSION"
   fi
 }
 

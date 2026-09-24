@@ -107,12 +107,17 @@ Con lo que devuelve la búsqueda, elegí una de cuatro:
 | Lo que encontraste | Qué hacés |
 |---|---|
 | Nada parecido | `brain_save` normal |
-| Lo mismo pero **desactualizado** (la política nueva contra la vieja, el contrato renovado contra el anterior) | `brain_save` con `supersedes` apuntando al id viejo. **Esto es lo más importante de todo el flujo:** es lo que hace que el cerebro sepa qué sigue vigente en vez de contestar las dos versiones |
-| Lo mismo dicho a medias, y el documento lo **completa** | Fusionar: una sola memoria que diga las dos cosas, con `supersedes` a la vieja. Dos memorias que se complementan valen menos que una que se entiende |
+| Lo mismo pero **desactualizado** (la política nueva contra la vieja, el contrato renovado contra el anterior) | `brain_save` con `supersedes` apuntando al id viejo, cuando la persona confirma que el documento reemplaza lo que había. **Esto es lo más importante de todo el flujo:** es lo que hace que el cerebro sepa qué sigue vigente en vez de contestar las dos versiones |
+| Lo mismo dicho a medias, y el documento lo **completa** | Fusionar: una sola memoria que diga las dos cosas, con `supersedes` a la vieja (también con el OK de la persona). Dos memorias que se complementan valen menos que una que se entiende |
 | Ya está dicho, igual o mejor | **No guardes nada.** Es la opción correcta bastante más seguido de lo que parece |
 
 Si dudás entre reemplazar y guardar aparte, preguntate si las dos pueden ser ciertas al mismo
 tiempo. Si no pueden, va `supersedes`.
+
+`supersedes` invalida la memoria vieja, y cuál queda lo decide la persona: se le muestran los dos
+títulos (lo que ya estaba y lo que trae el documento) y el reemplazo se hace con su confirmación.
+La excepción es una memoria que guardaste vos en esta misma sesión. Una memoria buena invalidada
+se pierde; dos versiones que conviven hasta que la persona elige, no.
 
 ## Qué SÍ es memoria
 

@@ -21,7 +21,7 @@ próxima búsqueda de otra persona.
 **Guardá** cuando pasó algo que otro (o vos en dos semanas) necesita saber para no repetir
 trabajo ni decidir de nuevo:
 - un frente que avanzó de verdad: se terminó, se deployó, se entregó, se rompió;
-- una decisión y **su porqué** — sobre todo si reemplaza una anterior (usá `supersedes`);
+- una decisión y **su porqué** — sobre todo si reemplaza una anterior (`supersedes` se usa cuando la persona confirma que la nueva reemplaza a la vieja);
 - algo que se aprendió y no está escrito en ningún lado: una restricción del cliente, una
   limitación de una herramienta, por qué un camino no funcionó;
 - un aviso que cambia lo que hay que hacer: un bloqueante, un pendiente que quedó abierto.
@@ -56,9 +56,11 @@ lo específico de una sesión que no se va a repetir.
 Una idea por memoria, como siempre: "desplegar Lempriere" y "despausar su Supabase" son dos
 procedimientos, no uno.
 
-**Antes de guardarlo, buscá con `brain_search`**: si ya hay un procedimiento para lo mismo, va
-`--supersedes <id-del-viejo>` en vez de una memoria nueva. Dos runbooks del mismo trámite
-conviviendo es peor que uno desactualizado, porque nadie sabe cuál seguir.
+**Antes de guardarlo, buscá con `brain_search`**: si ya hay un procedimiento para lo mismo, el
+reemplazo va con `--supersedes <id-del-viejo>` en vez de una memoria nueva, una vez que la persona
+confirma que el nuevo reemplaza al viejo. Dos runbooks del mismo trámite conviviendo es peor que
+uno desactualizado, porque nadie sabe cuál seguir; invalidar el de otro sin que la persona lo vea
+también: cuál queda lo decide ella.
 
 Se guarda igual que el resto, con `--type procedimiento`:
 
@@ -101,7 +103,7 @@ Si el usuario descarta, no guardes ni insistas.
    - `title` (3-200), `content_md` (resumen autocontenido, 2-10 líneas)
    - `entities`: clientes/proyectos/personas/temas tocados
    - `level`: por defecto tu nivel; ofrecé cambiarlo si es sensible
-   - `supersedes`: si reemplaza o CORRIGE una memoria anterior (de cualquier tipo, no sólo decisiones), su id
+   - `supersedes`: si reemplaza o CORRIGE una memoria anterior (de cualquier tipo, no sólo decisiones), su id. Va cuando la persona confirma el reemplazo; la excepción es una memoria que guardaste vos en esta misma sesión
 3. **Proponé** el/los resúmenes al usuario ANTES de escribir: "voy a guardar esto: […] · ¿ok / editás / descartás?".
 4. Con el OK → guardá cada entry corriendo en Bash el comando **`onebrain-save`** (canal Bash,
    funciona aunque la tool MCP esté deferred/no cargada todavía en la sesión):
@@ -115,7 +117,8 @@ Si el usuario descarta, no guardes ni insistas.
    - Si dice **"encolo para reintento"** (server caído, sin red, rate limit) → quedó **encolado**
      para el próximo arranque. Avisá al usuario que quedó pendiente, no perdido — no es una falla
      que tengas que resolver vos ahora.
-   - Si la decisión que estás guardando **reemplaza a una anterior**, agregá
+   - Si la decisión que estás guardando **reemplaza a una anterior** y la persona lo confirmó (o
+     la anterior es tuya de esta misma sesión), agregá
      `--supersedes <uuid-de-la-vieja>` (el id lo sacás con `brain_search`; sirve para cualquier tipo de memoria, no sólo decisiones — usalo también cuando lo guardado antes resultó estar equivocado): la vieja queda
      invalidada, no borrada. Sin esto el cerebro acumula decisiones contradictorias sin ninguna
      señal de cuál vale. Si el bin avisa que no encontró esa decisión, el id estaba mal: la

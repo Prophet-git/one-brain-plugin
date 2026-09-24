@@ -25,6 +25,9 @@ RESPUESTAS = {
     "/api/resume": {"resume": "Quedaste a mitad del wizard de alta."},
     "/api/mentions": {"mentions": "Fran te mencionó en una nota de ayer."},
     "/api/features": {"features": {"team-digest": True, "menciones": True}},
+    "/api/revision-pendiente": {
+        "revision": "⚖️ Hay 2 pares de memorias que se contradicen. Se revisan en la tab Review del panel, o pedime que te los muestre acá (tool brain_conflicts).",
+    },
     "/api/hello": {"hello": "Bienvenido a One Brain."},
     # La biblioteca de skills. El arranque de Claude Code hace POST acá y, si viene algo en
     # "instalar", lo baja y lo escribe. El de Codex NO lo llama: que este mock igual sepa

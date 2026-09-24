@@ -188,7 +188,7 @@ ob_session_start() {
 
   TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
+  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; REVISION=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
   SKILLSMSG=""
   if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
     HAS_TOKEN=1
@@ -236,6 +236,9 @@ ob_session_start() {
     ob_feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
     # Material sin amasar que la propia persona subió (string ya formateado, o "" si no hay).
     ob_feat_on material && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/material-pendiente" > "$OB_TMP/material" 2>/dev/null &
+    # Pares de memorias que se contradicen y esperan en la tab Review (una línea, o "" si no hay).
+    # Lee la foto nocturna, no corre el cruce. Sin efecto: el gate es sólo para no pedir de más.
+    ob_feat_on revision && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/revision-pendiente" > "$OB_TMP/revision" 2>/dev/null &
     # Features del usuario (toggles). Silencioso ante fallo → se conserva el features.json anterior.
     curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/features"  > "$OB_TMP/features"  2>/dev/null &
     # First-run "el cerebro habla primero" (#21): SOLO la primera vez que este usuario conecta.
@@ -271,6 +274,7 @@ ob_session_start() {
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
     MATERIAL=$(ob_json_field material "$(cat "$OB_TMP/material" 2>/dev/null)")
+    REVISION=$(ob_json_field revision "$(cat "$OB_TMP/revision" 2>/dev/null)")
 
     # First-run: parsear el saludo y apagar el marker para siempre (exista o no la respuesta).
     if [ "$DO_HELLO" = 1 ]; then
@@ -322,6 +326,7 @@ ob_session_start() {
   ob_feat_on session-resume || RESUME=""
   ob_feat_on menciones || MENTIONS=""
   ob_feat_on material || MATERIAL=""
+  ob_feat_on revision || REVISION=""
 
   # Aviso de reuniones sin sincronizar (feature 'reuniones', máx 1×/día). No llama a API/MCP:
   # solo invita a activar la skill. Idempotente por día vía marker en el pending-dir.
@@ -424,12 +429,14 @@ ob_session_start() {
   # subirles el tope A ELLAS primero, de a 100, remidiendo cada vez contra el server real. En
   # 800 el arranque entero mide 7753 chars con el peor caso REAL reproducido (marker de trabajo
   # sin guardar en su último aviso + recordatorio de reuniones del día, los dos disparados a la
-  # vez) — 247 de margen contra el techo de 8000. En 900 el mismo peor caso pega el techo
-  # (8066 — el propio recorte de seguridad se pasa por el largo de su cartel, ver comentario de
+  # vez) — 247 de margen contra el techo de 8000 (≈95 desde que se sumó la línea de pares para
+  # revisar, ~150 bytes, 23-sep-2026; sin remedir contra el server real). En 900 el mismo peor
+  # caso pega el techo (8066 — el propio recorte de seguridad se pasa por el largo de su cartel, ver comentario de
   # ob_clip en capture-lib.sh), así que 900 se probó y se descartó. No es un techo teórico: dos
   # mediciones reales, subiendo de a 100 como pide la tarea. Detalle en task-8-report.md.
   ob_append_clipped "$(ob_clip_menciones "$MENTIONS" 800)" 2400 menciones "$(ob_ptr_menciones)"   # lo que te dejó un compañero
   ob_append_clipped "$MATERIAL" 600 material "pedile al usuario correr $(ob_skill_cmd estudiar)"   # documentos que subiste y no estudiaste
+  ob_append_clipped "$REVISION" 300 revision "mostrarle los pares con brain_conflicts si los quiere ver"   # memorias que se contradicen (tab Review)
   ob_append_clipped "$SKILLSMSG" 400 skills      # skills que se acaban de instalar en esta máquina
   ob_append_clipped "$HELLO" 1200 hello          # bienvenida (sólo la primera vez)
   if [ -n "$BRIEF" ]; then
@@ -444,7 +451,8 @@ ob_session_start() {
     # ya estaba decidido: si hay que sacrificar caracteres, salen de acá, no de las menciones.
     # 1300 es el número más chico que hizo falta bajar para que el techo no se dispare NI
     # SIQUIERA en el peor caso real reproducido (marker de trabajo sin guardar en su aviso más
-    # largo + recordatorio de reuniones, los dos a la vez): 7753 de 8000, con 247 de margen.
+    # largo + recordatorio de reuniones, los dos a la vez): 7753 de 8000, con 247 de margen
+    # (≈95 desde que se sumó la línea de pares para revisar).
     # Con el brief real de prod esto sigue mostrando misión + método + 2-3 decisiones vigentes
     # antes de cortar — no queda vacío, y lo que se pierde se vuelve a pedir entero en el
     # próximo arranque. Detalle y las mediciones completas (antes/después) en task-8-report.md.
