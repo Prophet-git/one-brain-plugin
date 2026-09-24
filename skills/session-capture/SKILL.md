@@ -21,7 +21,7 @@ próxima búsqueda de otra persona.
 **Guardá** cuando pasó algo que otro (o vos en dos semanas) necesita saber para no repetir
 trabajo ni decidir de nuevo:
 - un frente que avanzó de verdad: se terminó, se deployó, se entregó, se rompió;
-- una decisión y **su porqué** — sobre todo si reemplaza una anterior (`supersedes` se usa cuando la persona confirma que la nueva reemplaza a la vieja);
+- una decisión y **su porqué** — sobre todo si reemplaza una anterior (`supersedes` va directo si la vieja es de la misma persona, y con su confirmación si es de otra);
 - algo que se aprendió y no está escrito en ningún lado: una restricción del cliente, una
   limitación de una herramienta, por qué un camino no funcionó;
 - un aviso que cambia lo que hay que hacer: un bloqueante, un pendiente que quedó abierto.
@@ -103,7 +103,7 @@ Si el usuario descarta, no guardes ni insistas.
    - `title` (3-200), `content_md` (resumen autocontenido, 2-10 líneas)
    - `entities`: clientes/proyectos/personas/temas tocados
    - `level`: por defecto tu nivel; ofrecé cambiarlo si es sensible
-   - `supersedes`: si reemplaza o CORRIGE una memoria anterior (de cualquier tipo, no sólo decisiones), su id. Va cuando la persona confirma el reemplazo; la excepción es una memoria que guardaste vos en esta misma sesión
+   - `supersedes`: si reemplaza o CORRIGE una memoria anterior (de cualquier tipo, no sólo decisiones), su id. Si la vieja es de la misma persona va directo y gana la más nueva; si es de otra persona, va cuando ella confirma el reemplazo
 3. **Proponé** el/los resúmenes al usuario ANTES de escribir: "voy a guardar esto: […] · ¿ok / editás / descartás?".
 4. Con el OK → guardá cada entry corriendo en Bash el comando **`onebrain-save`** (canal Bash,
    funciona aunque la tool MCP esté deferred/no cargada todavía en la sesión):
