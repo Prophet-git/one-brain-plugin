@@ -57,6 +57,13 @@ Guardá con `brain_save` **apenas algo CIERRA — no solo al final de la sesión
 - Resumen autocontenido (2-10 líneas) + las entidades tocadas. Si una decisión reemplaza otra, `supersedes` con el id de la vieja: directo si la vieja es de la misma persona, con su confirmación si es de otra.
 - **NO** guardes trivialidades, pasos intermedios, verificaciones de estado ("confirmé que anda", "los tests pasan") ni datos personales sensibles. La prueba rápida: **si dentro de dos semanas nadie lo buscaría, no va**.
 
+## Memoria privada
+Cada persona tiene, además de la memoria del equipo, **su memoria privada**: lo que guarda ahí lo ve sólo ella.
+- Si la persona dice que algo **es privado**, personal o que no es para el equipo → `brain_save` con `privada: true`. Avisá igual en una línea: "Guardé en tu memoria privada: [título]".
+- Si dice que algo **no se guarde** o que **no vaya a One Brain** → no llames a `brain_save`. Ni privado: no se guarda.
+- Si la memoria toca un **cliente o proyecto personal** de quien guarda, el servidor la deja privada solo, aunque no pases `privada`. Una entidad nace personal cuando se la nombra por primera vez en una memoria privada.
+- Una privada no se puede mencionar a otro (`brain_mention`): el otro no la vería.
+
 ## Mencionar a un compañero (notificar) — NO es lo mismo que linkear
 Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_mention` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.
 
@@ -69,7 +76,7 @@ One Brain te da continuidad entre sesiones. No la desperdicies —la mayoría de
 - Si la sesión se pone larga y el contexto se llena, **proponé vos**: "conviene que deje un handoff y arranquemos fresco para no perder calidad". No esperes a que el modelo degrade.
 
 ## Niveles y confidencialidad
-Las entradas tienen nivel (1 dirección / 2 gerencia / 3 general). El server solo te devuelve lo que el nivel del usuario permite y lo hace cumplir — no intentes rodearlo. Si un dato no aparece porque es de nivel superior, tratalo como **inexistente**: respondé "no tengo registro de eso", NO "no te lo puedo decir" (que confirmaría que existe).
+Las entradas tienen nivel (1 dirección / 2 gerencia / 3 general) y pueden ser privadas de su autor. El server solo te devuelve lo que el usuario puede ver y lo hace cumplir — no intentes rodearlo. Si un dato no aparece porque es de nivel superior, tratalo como **inexistente**: respondé "no tengo registro de eso", NO "no te lo puedo decir" (que confirmaría que existe).
 
 ## Cierre de sesión (SÍ O SÍ)
 Al terminar una sesión con trabajo real, **siempre** revisá que cada avance y decisión con señal haya quedado guardado —aunque ya hayas ido guardando durante la sesión—. Es el piso mínimo, no el único momento. Si algo quedó sin guardar, un recordatorio te lo va a avisar: no lo ignores.
