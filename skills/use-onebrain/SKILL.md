@@ -59,9 +59,10 @@ Guardá con `brain_save` **apenas algo CIERRA — no solo al final de la sesión
 
 ## Memoria privada
 Cada persona tiene, además de la memoria del equipo, **su memoria privada**: lo que guarda ahí lo ve sólo ella.
-- Si la persona dice que algo **es privado**, personal o que no es para el equipo → `brain_save` con `privada: true`. Avisá igual en una línea: "Guardé en tu memoria privada: [título]".
+- Si la persona dice que algo **es privado**, personal o que no es para el equipo → `brain_save` con `privada: true`.
 - Si dice que algo **no se guarde** o que **no vaya a One Brain** → no llames a `brain_save`. Ni privado: no se guarda.
-- Si la memoria toca un **cliente o proyecto personal** de quien guarda, el servidor la deja privada solo, aunque no pases `privada`. Una entidad nace personal cuando se la nombra por primera vez en una memoria privada.
+- **Decidí por de qué trata la memoria, no por a quién nombra.** Un presupuesto para un cliente personal → `privada: true`. Una nota de otro proyecto que nombra a ese cliente de pasada → `privada: false`. Si no pasás nada, el servidor la deja privada sólo cuando el **título** nombra un cliente personal de quien guarda. Una entidad nace personal cuando se la nombra por primera vez en una memoria privada.
+- La respuesta trae `guardada_en`: decilo siempre en una línea — "Guardé en tu memoria privada: [título]" o "Guardé en el equipo: [título]". Si quedó mal, se corrige con el candado del panel.
 - Una privada no se puede mencionar a otro (`brain_mention`): el otro no la vería.
 
 ## Mencionar a un compañero (notificar) — NO es lo mismo que linkear
