@@ -1704,6 +1704,8 @@ assert_eq "el core resuelve el nombre del programa host en un solo lugar" 0 "$?"
 
 # Caracterización de session-start.sh (corre aparte: levanta un server mock).
 if sh "$DIR/session-start-test.sh" >/dev/null 2>&1; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); printf 'FAIL: session-start-test.sh\n'; fi
+# ?repo= en /api/resume: con remote, sin git, sin remote y con caracteres raros (también levanta mock).
+if sh "$DIR/resume-repo-test.sh" >/dev/null 2>&1; then PASS=$((PASS+1)); else FAIL=$((FAIL+1)); printf 'FAIL: resume-repo-test.sh — corrélo suelto: sh plugin/tests/resume-repo-test.sh\n'; fi
 
 # Sincronía de core/ con las copias vendorizadas. Vive en tests/ del repo, pero hasta ahora no
 # lo invocaba NADIE —ni esta batería, ni CI, ni el publish— o sea que la garantía dependía de

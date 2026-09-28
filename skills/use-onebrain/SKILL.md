@@ -5,7 +5,7 @@ description: Usá One Brain (la memoria colectiva de la empresa) durante todo el
 
 # Usar One Brain
 
-One Brain es la memoria colectiva de la empresa, accesible por las tools MCP `brain_context`, `brain_search`, `brain_entity`, `brain_entities`, `brain_save`, `brain_mention`. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
+One Brain es la memoria colectiva de la empresa, accesible por las tools MCP `brain_context`, `brain_search`, `brain_entity`, `brain_entities`, `brain_save`, `brain_mention`, `brain_ficha` y `brain_ficha_editar`. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
 
 ## Cómo resolver cada tipo de pregunta (ruteo)
 
@@ -16,6 +16,7 @@ Antes de contestar, identificá qué tipo de pregunta es y usá el plan correspo
 | "¿en qué estamos?", puesta al día, o arrancás una tarea | `brain_context` (la tarea en una frase + las entidades que sepas) |
 | un dato puntual, "¿qué es X?", "¿qué se decidió sobre Y?" | `brain_search` con el término |
 | todo sobre un cliente / proyecto / persona / tema | `brain_entity` (acepta nombre **o alias**) |
+| "¿en qué está X?", "¿qué falta de X?" (un proyecto) | `brain_ficha` primero; si no tiene ficha, `brain_entity` |
 | "¿qué clientes/personas/temas hay?", "listá los proyectos" | `brain_entities` (filtra por `type` o `search`) |
 | qué pasó en un período ("en marzo", "esta semana") | `brain_search` con `since`/`until` (ver Fechas relativas) |
 | qué hizo una persona ("¿qué tocó Fran?") | `brain_search` con `author` |
@@ -69,6 +70,13 @@ Cada persona tiene, además de la memoria del equipo, **su memoria privada**: lo
 Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_mention` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.
 
 ⚠️ Poner a la persona en el campo `entities` de `brain_save` la conecta al grafo pero **NO la notifica** — no cumple el pedido. Si el usuario pide "guardá esto Y avisale a Fran", son DOS acciones: `brain_save` (la nota) + `brain_mention` (el aviso, con el `entry_id` que devolvió el save). No las confundas ni omitas la mención.
+
+## Ficha de proyecto
+Un proyecto puede tener ficha: el estado vigente en renglones (tareas, bloqueos, lo pactado, salvedades, diagrama). Es la fuente del estado; los handoffs y las memorias cuentan el porqué.
+- **Leela** con `brain_ficha` antes de trabajar en ese proyecto o de contestar "¿en qué está X?" o "¿qué falta?".
+- **Editala** con `brain_ficha_editar` cuando cambia el estado: una tarea cerró, se trabó, apareció una nueva, o hay algo que saber antes de tocar. Se mueve el renglón; no se reescribe todo. Mover a `hecho` pide `fuente`.
+- **Al guardar el cierre de una tarea**, pasá en `brain_save` los ids en `cierra_tareas`: la memoria queda como prueba y la tarea pasa a `hecho` en el mismo paso. La respuesta trae `ficha.tareas_abiertas`: si alguna también cerró, cerrala.
+- Lo pactado con el cliente y lo que el cliente respondió los propone el agente; los confirma una persona en el panel.
 
 ## Continuidad de sesión (OBLIGATORIO — esto nos distingue)
 One Brain te da continuidad entre sesiones. No la desperdicies —la mayoría de la gente arranca cada sesión de cero y llena el contexto al pedo; nosotros no:

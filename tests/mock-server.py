@@ -60,11 +60,17 @@ if _override:
     with open(_override, encoding="utf-8") as fh:
         RESPUESTAS.update(json.load(fh))
 _headers_log = os.environ.get("OB_MOCK_HEADERS")
+# OB_MOCK_PATHS: archivo donde volcar la ruta COMPLETA (con query) de cada GET. Deja verificar
+# que /api/resume sale con ?repo= y bien codificado; tampoco aparece en ninguna salida.
+_paths_log = os.environ.get("OB_MOCK_PATHS")
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         ruta = self.path.split("?")[0]
+        if _paths_log:
+            with open(_paths_log, "a", encoding="utf-8") as fh:
+                fh.write(self.path + "\n")
         # El contenido de un archivo de skill sale como texto plano, no envuelto en JSON: es lo
         # que hace el endpoint real y lo que el plugin escribe tal cual en el disco.
         if ruta == "/api/skills/archivo":

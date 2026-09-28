@@ -164,6 +164,24 @@ ob_clip_menciones() { # <texto> <max_por_mencion>
   [ "$_obinitem" = 1 ] && printf '%s' "$_obitem" | ob_clip "$_obimax" "$_obptr"
 }
 
+# ob_repo_remote <dir> — el remote "origin" del repo que contiene <dir>, o "" si no hay.
+# Primero busca un .git subiendo carpetas y sólo entonces llama a git: en una Mac sin las
+# herramientas de desarrollador, /usr/bin/git abre el diálogo de instalación, y eso no puede
+# pasar en cada arranque de alguien que ni usa git.
+ob_repo_remote() {
+  _obd="$1"
+  # Corta en la raíz y también si dirname ya no avanza (una ruta relativa como "." quedaría
+  # dando vueltas para siempre).
+  while [ -n "$_obd" ] && [ ! -e "$_obd/.git" ]; do
+    _obup=$(dirname -- "$_obd")
+    [ "$_obup" = "$_obd" ] && break
+    _obd=$_obup
+  done
+  [ -e "$_obd/.git" ] || return 0
+  command -v git >/dev/null 2>&1 || return 0
+  git -C "$_obd" remote get-url origin 2>/dev/null | head -n1
+}
+
 # ob_session_start — el arranque entero. Lee el input del hook de stdin (los dos programas lo
 # pasan igual: un JSON con session_id, cwd, transcript_path...). Silencioso ante cualquier
 # fallo: nunca bloquea el arranque de una sesión.
@@ -230,7 +248,16 @@ ob_session_start() {
     # peso era lo que hacía que Claude Code truncara todo el contexto de arranque.
     ob_feat_on daily-synthesis && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/synthesis?peek=1" > "$OB_TMP/synthesis" 2>/dev/null &
     # Continuidad: el handoff más reciente del PROPIO usuario (≤3 días), para retomar donde quedó.
-    curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume"    > "$OB_TMP/resume"    2>/dev/null &
+    # repo=: el remote de git de la carpeta de la sesión, para que el server sume la ficha del
+    # proyecto que vive en ese repo. Lo codifica curl (-G --data-urlencode): no suma ninguna
+    # herramienta que el arranque no use ya. Sin git o sin remote, la llamada queda como antes.
+    OB_CWD=$(ob_json_field cwd "$INPUT"); [ -n "$OB_CWD" ] || OB_CWD=$PWD
+    OB_REPO=$(ob_repo_remote "$OB_CWD")
+    if [ -n "$OB_REPO" ]; then
+      curl -s --max-time 8 -G --data-urlencode "repo=$OB_REPO" -H "Authorization: Bearer $TOKEN" "$URL/api/resume" > "$OB_TMP/resume" 2>/dev/null &
+    else
+      curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/resume"    > "$OB_TMP/resume"    2>/dev/null &
+    fi
     # Menciones pendientes que te dejó un compañero (string ya formateado, o "" si no hay).
     # También tiene efecto: marca las resoluciones como vistas. Mismo criterio que arriba.
     ob_feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
