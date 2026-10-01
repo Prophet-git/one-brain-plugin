@@ -650,3 +650,155 @@ ob_unsaved_kind() {
     END { print (w>=min) ? "edits" : (w>0 ? "cola" : ((u>=mint && !s) ? "conversacion" : "")) }
   ' "$transcript"
 }
+
+# ob_fichas_sin_mover <transcript>: qué proyectos quedaron con la ficha atrasada en esta sesión.
+#
+# Por qué existe: brain_save devuelve `fichas` / `ficha.tareas_abiertas` / `ficha_aviso` pidiendo
+# mover las tareas que la memoria cerró, pero es texto y el agente lo ignoraba. El 1-oct-2026 pasó
+# varias veces en una sola sesión y la ficha de Dashboard PEM llegó a tener 15 tareas que ya
+# estaban hechas: Foco mostraba como pendiente lo que no lo era. stop-guard.sh usa esto para
+# frenar el cierre UNA vez y pedir que se revisen.
+#
+# Un proyecto queda "sin mover" si un brain_save (tool MCP o `onebrain-save` por Bash) devolvió
+# tareas abiertas suyas y DESPUÉS de ese guardado no hubo un brain_ficha_editar sobre él ni un
+# brain_save con cierra_tareas. "Después" se mide por el orden de las LLAMADAS, no de las
+# respuestas: con llamadas en paralelo el resultado del guardado puede llegar después de la
+# edición, y eso no la vuelve anterior. Un cierra_tareas cubre todo lo anterior: quien lo manda ya
+# miró las tareas abiertas (la respuesta que las lista es la del guardado previo).
+#
+# Los proyectos salen de `fichas[]` (o `ficha`, la forma vieja) con tareas_abiertas no vacías, y
+# de los bloques "Nombre:\n- id · título" de `ficha_aviso` — que es donde viene el caso de un
+# cliente con varios proyectos, que no trae `fichas`. Un aviso que sólo ofrece CREAR una ficha no
+# tiene esos bloques y no cuenta: crear una ficha no es mover tareas.
+#
+# Salida: vacía si no falta nada. Si falta, la primera línea es el id de la llamada del último
+# guardado pendiente (para avisar una sola vez por guardado) y después un proyecto por línea.
+#
+# Lee el transcript línea a línea (puede pesar decenas de MB) y saltea sin parsear las que no
+# tienen "tool_". Parser estructural, nunca grep: la respuesta viaja como JSON escapado adentro
+# de otro JSON. python3, y perl como respaldo (Windows/Git Bash, donde python3 no es seguro);
+# OB_SIN_PYTHON=1 fuerza perl (lo usan los tests para cubrir las dos ramas). Si no hay ninguno, o
+# el transcript no se puede leer, devuelve vacío: FALLA ABIERTO, nunca frena un cierre por un
+# error propio.
+ob_fichas_sin_mover() {
+  [ -r "$1" ] || return 0
+  if [ -z "$OB_SIN_PYTHON" ] && command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import json,re,sys,unicodedata
+def norm(s):
+    s=unicodedata.normalize("NFKD",s if isinstance(s,str) else "")
+    s="".join(c for c in s if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+","-",s.lower()).strip("-")
+def texto(c):
+    if isinstance(c,str): return c
+    if isinstance(c,list): return "".join(b["text"] for b in c if isinstance(b,dict) and isinstance(b.get("text"),str))
+    return ""
+pos=0; cierra=-1; saves={}; edits=[]; pend={}
+with open(sys.argv[1],encoding="utf-8",errors="replace") as f:
+    for linea in f:
+        if "tool_" not in linea: continue
+        try: d=json.loads(linea)
+        except Exception: continue
+        m=d.get("message") if isinstance(d,dict) else None
+        c=m.get("content") if isinstance(m,dict) else None
+        if not isinstance(c,list): continue
+        for b in c:
+            if not isinstance(b,dict): continue
+            if b.get("type")=="tool_use":
+                pos+=1
+                n=b.get("name") if isinstance(b.get("name"),str) else ""
+                e=b.get("input") if isinstance(b.get("input"),dict) else {}
+                if n.endswith("brain_ficha_editar"): edits.append((pos,norm(e.get("project"))))
+                elif n.endswith("brain_save"):
+                    if e.get("cierra_tareas"): cierra=pos
+                    else: saves[b.get("id")]=pos
+                elif n=="Bash" and "onebrain-save" in str(e.get("command","")): saves[b.get("id")]=pos
+            elif b.get("type")=="tool_result" and b.get("tool_use_id") in saves:
+                tid=b.get("tool_use_id"); sp=saves[tid]
+                t=texto(b.get("content")); i=t.find("{")
+                if i<0: continue
+                try: r=json.JSONDecoder().raw_decode(t[i:])[0]
+                except Exception: continue
+                if not isinstance(r,dict): continue
+                fs=r.get("fichas") if isinstance(r.get("fichas"),list) else ([r["ficha"]] if isinstance(r.get("ficha"),dict) else [])
+                nuevos=[]
+                for x in fs:
+                    p=x.get("proyecto") if isinstance(x,dict) else None
+                    if not isinstance(p,dict): continue
+                    nombre=p.get("name") or p.get("slug") or ""
+                    if x.get("tareas_abiertas"): nuevos.append((nombre,p.get("slug") or ""))
+                    else: pend.pop(norm(nombre),None)
+                a=r.get("ficha_aviso")
+                if isinstance(a,str): nuevos+=[(n.strip(),"") for n in re.findall(r"^([^\n]+):\n- ",a,re.M)]
+                for nombre,slug in nuevos:
+                    k=norm(nombre)
+                    if not k: continue
+                    viejo=pend.get(k)
+                    pend[k]=(nombre,norm(slug) or (viejo[1] if viejo else k),sp,tid)
+vivos=[v for k,v in pend.items() if not (cierra>v[2] or any(ep>v[2] and ex and ex in (k,v[1]) for ep,ex in edits))]
+if vivos:
+    ult=max(vivos,key=lambda v:v[2])
+    sys.stdout.buffer.write(("\n".join([str(ult[3])]+[v[0] for v in vivos])+"\n").encode("utf-8"))' "$1" 2>/dev/null
+    return 0
+  fi
+  command -v perl >/dev/null 2>&1 || return 0
+  perl -MJSON::PP -MUnicode::Normalize -e '
+no warnings;
+my $js=JSON::PP->new;
+sub norm { my $s=shift; $s="" if !defined $s || ref $s; $s=NFKD($s); $s=~s/\p{Mn}//g; $s=lc $s; $s=~s/[^a-z0-9]+/-/g; $s=~s/^-+|-+$//g; return $s }
+open(my $f,"<:encoding(UTF-8)",$ARGV[0]) or exit 0;
+my ($pos,$cierra)=(0,-1); my (%saves,@edits,%pend,@orden);
+while (my $l=<$f>) {
+  next if index($l,"tool_")<0;
+  my $d=eval{$js->decode($l)}; next unless ref $d eq "HASH";
+  my $m=$d->{message}; next unless ref $m eq "HASH";
+  my $c=$m->{content}; next unless ref $c eq "ARRAY";
+  for my $bl (@$c) {
+    next unless ref $bl eq "HASH"; my $t=$bl->{type}//"";
+    if ($t eq "tool_use") {
+      $pos++; my $n=ref $bl->{name} ? "" : ($bl->{name}//""); my $e=ref $bl->{input} eq "HASH" ? $bl->{input} : {};
+      if ($n=~/brain_ficha_editar$/) { push @edits,[$pos,norm($e->{project})] }
+      elsif ($n=~/brain_save$/) {
+        my $ct=$e->{cierra_tareas};
+        if ((ref $ct eq "ARRAY" && @$ct) || (defined $ct && !ref $ct && $ct ne "")) { $cierra=$pos } else { $saves{$bl->{id}//""}=$pos }
+      }
+      elsif ($n eq "Bash" && index((ref $e->{command} ? "" : ($e->{command}//"")),"onebrain-save")>=0) { $saves{$bl->{id}//""}=$pos }
+    } elsif ($t eq "tool_result" && exists $saves{$bl->{tool_use_id}//""}) {
+      my $tid=$bl->{tool_use_id}; my $sp=$saves{$tid};
+      my $tx=$bl->{content};
+      if (ref $tx eq "ARRAY") { $tx=join "", map { (ref $_ eq "HASH" && defined $_->{text} && !ref $_->{text}) ? $_->{text} : "" } @$tx }
+      elsif (ref $tx || !defined $tx) { $tx="" }
+      my $i=index($tx,"{"); next if $i<0;
+      my ($r)=eval{ $js->decode_prefix(substr($tx,$i)) }; next unless ref $r eq "HASH";
+      my @fs = ref $r->{fichas} eq "ARRAY" ? @{$r->{fichas}} : (ref $r->{ficha} eq "HASH" ? ($r->{ficha}) : ());
+      my @nuevos;
+      for my $x (@fs) {
+        next unless ref $x eq "HASH" && ref $x->{proyecto} eq "HASH";
+        my $p=$x->{proyecto}; my $nombre=$p->{name} || $p->{slug} || "";
+        my $ta=$x->{tareas_abiertas};
+        if (ref $ta eq "ARRAY" && @$ta) { push @nuevos,[$nombre,$p->{slug}//""] } else { delete $pend{norm($nombre)} }
+      }
+      my $a=$r->{ficha_aviso};
+      if (defined $a && !ref $a) { while ($a=~/^([^\n]+):\n- /mg) { my $n=$1; $n=~s/^\s+|\s+$//g; push @nuevos,[$n,""] } }
+      for my $nv (@nuevos) {
+        my ($nombre,$slug)=@$nv; my $k=norm($nombre); next if $k eq "";
+        my $viejo=$pend{$k}; push @orden,$k unless $viejo;
+        my $ns=norm($slug); $ns = $viejo ? $viejo->[1] : $k if $ns eq "";
+        $pend{$k}=[$nombre,$ns,$sp,$tid];
+      }
+    }
+  }
+}
+my @vivos;
+for my $k (@orden) {
+  my $v=$pend{$k}; next unless $v;
+  next if $cierra>$v->[2];
+  next if grep { $_->[0]>$v->[2] && $_->[1] ne "" && ($_->[1] eq $k || $_->[1] eq $v->[1]) } @edits;
+  push @vivos,$v;
+}
+exit 0 unless @vivos;
+my ($ult)=sort { $b->[2] <=> $a->[2] } @vivos;
+binmode STDOUT,":encoding(UTF-8)";
+print join("\n",$ult->[3],map { $_->[0] } @vivos),"\n";
+' "$1" 2>/dev/null
+  return 0
+}

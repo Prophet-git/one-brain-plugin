@@ -66,8 +66,38 @@ else
   # borra es el ciclo de recordatorio: borrarlo era pedir de nuevo dos turnos después de guardar.
   rm -f "$PEND" 2>/dev/null
   printf '%s' "$CNT" > "$SAVED_FILE" 2>/dev/null
-  exit 0
 fi
+
+# Fichas atrasadas: la sesión guardó memorias de un proyecto con tareas abiertas y después no
+# movió ninguna (ver ob_fichas_sin_mover). Acá SÍ se frena el cierre, con decision:block, porque
+# el aviso de texto que ya devolvía brain_save se ignoraba: el 1-oct-2026 la ficha de Dashboard
+# PEM llegó a 15 tareas que ya estaban hechas, y Foco las mostraba como pendientes.
+#
+# Se frena UNA vez por guardado: el id del último guardado reclamado queda en fichas-avisado-,
+# y si el agente revisó y dijo que ninguna cambió, el turno siguiente no vuelve a insistir. Con
+# stop_hook_active (este Stop viene de un bloqueo anterior) no se frena nunca: es lo que evita el
+# bucle. Va antes del recordatorio de captura porque es más concreto; si además hay edits sin
+# guardar, el mismo motivo lo pide, así no compiten dos avisos en el mismo turno.
+if ! printf '%s' "$INPUT" | grep -q '"stop_hook_active"[[:space:]]*:[[:space:]]*true'; then
+  FICHAS=$(ob_fichas_sin_mover "$TRANSCRIPT")
+  if [ -n "$FICHAS" ]; then
+    ULTIMO=$(printf '%s\n' "$FICHAS" | sed -n 1p)
+    AVISADO_FILE="$PDIR/fichas-avisado-$SESSION"
+    if [ "$ULTIMO" != "$(cat "$AVISADO_FILE" 2>/dev/null)" ]; then
+      printf '%s' "$ULTIMO" > "$AVISADO_FILE" 2>/dev/null
+      # Nombres a una línea, escapados para JSON (vienen del server: pueden traer comillas).
+      NOMBRES=$(printf '%s\n' "$FICHAS" | sed -n '2,$p' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/ /g' | awk 'NR>1{printf ", "} {printf "%s", $0}')
+      CUANTOS=$(printf '%s\n' "$FICHAS" | sed -n '2,$p' | grep -c .)
+      TIENE="tiene"; [ "$CUANTOS" -gt 1 ] && TIENE="tienen"
+      EXTRA=""
+      [ "$KIND" = "edits" ] && EXTRA=" Después, guardá con brain_save lo que quedó sin registrar."
+      printf '{"decision":"block","reason":"Guardaste memorias de %s, que %s tareas abiertas en su ficha, y después de tu último guardado no se movió ninguna. Antes de cerrar, revisá esas tareas contra lo que se hizo y mové las que cambiaron con brain_ficha_editar (a hecho con fuente \\"memoria <id>\\", o a bloqueado). Si ninguna cambió, decilo explícitamente.%s"}' "$NOMBRES" "$TIENE" "$EXTRA"
+      exit 0
+    fi
+  fi
+fi
+
+[ "$UNSAVED" = "1" ] || exit 0
 
 # Una charla larga se anota para el aviso de ARRANQUE (que sabe leer el transcript entero), pero
 # no se reclama turno a turno: interrumpir una conversación para pedir que la guarde es
