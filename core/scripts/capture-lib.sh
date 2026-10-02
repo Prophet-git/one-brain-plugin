@@ -666,6 +666,11 @@ ob_unsaved_kind() {
 # edición, y eso no la vuelve anterior. Un cierra_tareas cubre todo lo anterior: quien lo manda ya
 # miró las tareas abiertas (la respuesta que las lista es la del guardado previo).
 #
+# Desde el 2-oct-2026 el server no guarda una memoria sobre un proyecto con tareas abiertas sin que
+# decida (cierra_tareas o sin_cambios_en_tareas). Un guardado con sin_cambios_en_tareas: true (o
+# `onebrain-save --sin-cambios-en-tareas`) ya decidió que no cerró nada: no queda pendiente. Con
+# --cierra-tareas por Bash cuenta igual que cierra_tareas por la tool.
+#
 # Los proyectos salen de `fichas[]` (o `ficha`, la forma vieja) con tareas_abiertas no vacías, y
 # de los bloques "Nombre:\n- id · título" de `ficha_aviso` — que es donde viene el caso de un
 # cliente con varios proyectos, que no trae `fichas`. Un aviso que sólo ofrece CREAR una ficha no
@@ -710,8 +715,13 @@ with open(sys.argv[1],encoding="utf-8",errors="replace") as f:
                 if n.endswith("brain_ficha_editar"): edits.append((pos,norm(e.get("project"))))
                 elif n.endswith("brain_save"):
                     if e.get("cierra_tareas"): cierra=pos
+                    elif e.get("sin_cambios_en_tareas") is True: pass
                     else: saves[b.get("id")]=pos
-                elif n=="Bash" and "onebrain-save" in str(e.get("command","")): saves[b.get("id")]=pos
+                elif n=="Bash" and "onebrain-save" in str(e.get("command","")):
+                    cmd=str(e.get("command",""))
+                    if "--cierra-tareas" in cmd: cierra=pos
+                    elif "--sin-cambios-en-tareas" in cmd: pass
+                    else: saves[b.get("id")]=pos
             elif b.get("type")=="tool_result" and b.get("tool_use_id") in saves:
                 tid=b.get("tool_use_id"); sp=saves[tid]
                 t=texto(b.get("content")); i=t.find("{")
@@ -758,10 +768,17 @@ while (my $l=<$f>) {
       $pos++; my $n=ref $bl->{name} ? "" : ($bl->{name}//""); my $e=ref $bl->{input} eq "HASH" ? $bl->{input} : {};
       if ($n=~/brain_ficha_editar$/) { push @edits,[$pos,norm($e->{project})] }
       elsif ($n=~/brain_save$/) {
-        my $ct=$e->{cierra_tareas};
-        if ((ref $ct eq "ARRAY" && @$ct) || (defined $ct && !ref $ct && $ct ne "")) { $cierra=$pos } else { $saves{$bl->{id}//""}=$pos }
+        my $ct=$e->{cierra_tareas}; my $sc=$e->{sin_cambios_en_tareas};
+        if ((ref $ct eq "ARRAY" && @$ct) || (defined $ct && !ref $ct && $ct ne "")) { $cierra=$pos }
+        elsif (JSON::PP::is_bool($sc) && $sc) { }
+        else { $saves{$bl->{id}//""}=$pos }
       }
-      elsif ($n eq "Bash" && index((ref $e->{command} ? "" : ($e->{command}//"")),"onebrain-save")>=0) { $saves{$bl->{id}//""}=$pos }
+      elsif ($n eq "Bash" && index((ref $e->{command} ? "" : ($e->{command}//"")),"onebrain-save")>=0) {
+        my $cmd=$e->{command};
+        if (index($cmd,"--cierra-tareas")>=0) { $cierra=$pos }
+        elsif (index($cmd,"--sin-cambios-en-tareas")>=0) { }
+        else { $saves{$bl->{id}//""}=$pos }
+      }
     } elsif ($t eq "tool_result" && exists $saves{$bl->{tool_use_id}//""}) {
       my $tid=$bl->{tool_use_id}; my $sp=$saves{$tid};
       my $tx=$bl->{content};

@@ -23,7 +23,7 @@ Destilás el estado de la sesión en un handoff conciso y lo guardás en el cere
    - **Próximo paso** (concreto)
    - **Estado técnico** (opcional, si hay repo)
 5. Proponéselo al usuario: "este es el handoff, ¿lo guardo así o ajustás?".
-6. Con el OK → `brain_save` con `type: "handoff"`, un `title` claro (incluí el proyecto), el handoff en `content_md`, y `entities` = el proyecto/tema tocado. Reportá el `entry_id`.
+6. Con el OK → `brain_save` con `type: "handoff"`, un `title` claro (incluí el proyecto), el handoff en `content_md`, y `entities` = el proyecto/tema tocado. Si el proyecto tiene ficha, sumá `sin_cambios_en_tareas: true` (las tareas ya las moviste en el paso 1) o `cierra_tareas` con las que cierra este handoff: sin una de las dos no se guarda. Reportá el `entry_id`.
 
 ## Reglas
 - Concreto > vago: "resume en el wizard paso 3, falta el submit" gana a "seguir con el wizard".

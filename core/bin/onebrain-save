@@ -2,11 +2,12 @@
 # onebrain-save: guarda una memoria por el canal Bash (inmune al deferred de la tool MCP).
 # Uso: onebrain-save --type avance --title "T" --content "C" [--entities "a,b"] [--area x]
 #                    [--supersedes <uuid-de-la-memoria-que-reemplaza>]
+#                    [--cierra-tareas "<id>,<id>"] [--sin-cambios-en-tareas]
 # Éxito: imprime el entry_id. Fallo de red/server: encola para reintento (NO se pierde).
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/../scripts/capture-lib.sh"
 
-TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""; SUPERSEDES=""
+TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""; SUPERSEDES=""; CIERRA=""; SIN_CAMBIOS=""
 # OJO con `shift 2`: en POSIX sh, si queda UN solo argumento, falla y NO baja $# — el while
 # gira para siempre. Pasa cuando el modelo arma el comando y un flag queda sin valor (alcanza
 # una comilla que rompe el quoting), justo al cerrar la sesión. De ahí el guard explícito.
@@ -25,6 +26,11 @@ while [ $# -gt 0 ]; do
     # (invalidated_at/invalidated_by) desde siempre, pero sin este flag las skills no tenían
     # cómo pasarlo por el canal Bash: 0 de 529 entradas invalidadas en prod.
     --supersedes) need_val "$1" $#; SUPERSEDES=$2; shift 2 ;;
+    # Dos estados, no tres (2-oct-2026): una memoria sobre un proyecto con tareas abiertas en su
+    # ficha dice si cerró alguna (--cierra-tareas con los ids) o ninguna (--sin-cambios-en-tareas).
+    # Sin una de las dos el server la rechaza con 422 y la lista de tareas abiertas con su id.
+    --cierra-tareas) need_val "$1" $#; CIERRA=$2; shift 2 ;;
+    --sin-cambios-en-tareas) SIN_CAMBIOS=1; shift ;;
     # Un flag mal escrito se descartaba en silencio y la memoria se guardaba incompleta (sin
     # entidades, sin área), sin que nadie se enterara. Mejor fallar y que el modelo corrija.
     *) echo "onebrain-save: opción desconocida: $1" >&2; exit 2 ;;
@@ -44,6 +50,19 @@ if [ -n "$SUPERSEDES" ]; then
     echo "onebrain-save: --supersedes espera el uuid de la memoria anterior (ej. 8f3d0a1e-2b4c-4d6e-9f01-23456789abcd); recibí '$SUPERSEDES'. Buscá el id con brain_search y reintentá." >&2
     exit 2
   }
+fi
+
+# Los ids de --cierra-tareas se validan acá por la misma razón que --supersedes: un id mal copiado
+# es un 400 del zod del server, y un 4xx no se encola.
+CIERRA_JSON=""
+if [ -n "$CIERRA" ]; then
+  for _id in $(printf '%s' "$CIERRA" | sed 's/,/ /g'); do
+    printf '%s' "$_id" | grep -qiE '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' || {
+      echo "onebrain-save: --cierra-tareas espera ids de tareas separados por coma (los que lista la ficha); recibí '$_id'." >&2
+      exit 2
+    }
+    CIERRA_JSON="$CIERRA_JSON${CIERRA_JSON:+,}\"$_id\""
+  done
 fi
 
 ENT_JSON="[]"
@@ -66,8 +85,12 @@ AREA_KV=""
 SUP_KV=""
 # Seguro de interpolar sin escapar: ya pasó la validación de uuid (solo hex y guiones).
 [ -n "$SUPERSEDES" ] && SUP_KV=$(printf ',"supersedes":"%s"' "$SUPERSEDES")
-PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s%s%s}' \
-  "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON" "$AREA_KV" "$SUP_KV")
+# Seguro de interpolar: los ids ya pasaron la validación de uuid.
+TAREAS_KV=""
+[ -n "$CIERRA_JSON" ] && TAREAS_KV=$(printf ',"cierra_tareas":[%s]' "$CIERRA_JSON")
+[ -n "$SIN_CAMBIOS" ] && TAREAS_KV="$TAREAS_KV,\"sin_cambios_en_tareas\":true"
+PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s%s%s%s}' \
+  "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON" "$AREA_KV" "$SUP_KV" "$TAREAS_KV")
 
 TOKEN_FILE="$(ob_config_dir)/token"
 TOKEN=""
@@ -105,7 +128,12 @@ case "$CODE" in
     ;;
   4??)
     echo "onebrain-save: el server rechazó la memoria ($CODE). NO se encoló: corregí y reintentá." >&2
-    [ -n "$BODY" ] && printf '%s\n' "$BODY" >&2
+    # El texto de `error` sale desescapado (con sus saltos de línea): el rechazo por tareas sin
+    # decidir trae una lista de ids que el modelo tiene que poder leer. Si no hay campo `error`
+    # (o no se pudo parsear), el cuerpo crudo, como antes.
+    OB_ERR=$(ob_json_field error "$BODY")
+    if [ -n "$OB_ERR" ]; then printf '%s\n' "$OB_ERR" >&2
+    elif [ -n "$BODY" ]; then printf '%s\n' "$BODY" >&2; fi
     exit 1
     ;;
   *)

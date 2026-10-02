@@ -75,7 +75,7 @@ Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una p
 Un proyecto puede tener ficha: el estado vigente en renglones (tareas, bloqueos, lo pactado, salvedades, diagrama). Es la fuente del estado; los handoffs y las memorias cuentan el porqué.
 - **Leela** con `brain_ficha` antes de trabajar en ese proyecto o de contestar "¿en qué está X?" o "¿qué falta?".
 - **Editala** con `brain_ficha_editar` cuando cambia el estado: una tarea cerró, se trabó, apareció una nueva, o hay algo que saber antes de tocar. Se mueve el renglón; no se reescribe todo. Mover a `hecho` pide `fuente`.
-- **Al guardar el cierre de una tarea**, pasá en `brain_save` los ids en `cierra_tareas`: la memoria queda como prueba y la tarea pasa a `hecho` en el mismo paso. La respuesta trae `ficha.tareas_abiertas`: si alguna también cerró, cerrala.
+- **Al guardar sobre un proyecto con ficha, siempre decidí las tareas**: los ids que cerró en `cierra_tareas` (pasan a `hecho` con la memoria como prueba) o `sin_cambios_en_tareas: true` si no cerró ninguna. Una tarea está hecha o no: sin una de las dos el guardado se rechaza y la respuesta lista las tareas abiertas con su id; reenviá con lo que corresponda.
 - Lo pactado con el cliente y lo que el cliente respondió los propone el agente; los confirma una persona en el panel.
 
 ## Continuidad de sesión (OBLIGATORIO — esto nos distingue)
