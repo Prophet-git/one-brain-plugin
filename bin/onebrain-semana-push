@@ -1,0 +1,63 @@
+#!/bin/sh
+# onebrain-semana-push: sube a One Brain las sesiones de Claude Code de esta Mac (vista Semana).
+#
+#   onebrain-semana-push            lo que corre el hook Stop: como mucho una vez cada 10 minutos
+#   onebrain-semana-push --ahora    saltea el tope y dice en una línea qué subió (para el agente)
+#   onebrain-semana-push --estado   la línea del doctor: semana|ok|... o semana|aviso|...
+#   onebrain-semana-push --aviso    una línea sólo si Semana dejó de andar (arranque de sesión)
+#
+# Lee ~/.claude/projects con plugin/semana/recolectar.py y manda sólo lo que cambió desde la última
+# corrida. Estado en ~/.onebrain/semana/. Sin python3 o sin token sale con 0: Semana es una
+# comodidad y no puede ensuciar el cierre de una sesión. A mano (--ahora, --estado) sí lo dice.
+
+# Se resuelve el symlink antes de calcular el directorio (link-bins.sh lo deja en ~/.local/bin):
+# `dirname $0` daría la carpeta del link y no encontraría el resto del plugin.
+SRC=$0
+while [ -L "$SRC" ]; do
+  ENLACE_DIR=$(CDPATH= cd -- "$(dirname -- "$SRC")" && pwd)
+  SRC=$(readlink "$SRC")
+  case $SRC in /*) ;; *) SRC="$ENLACE_DIR/$SRC" ;; esac
+done
+DIR=$(CDPATH= cd -- "$(dirname -- "$SRC")" && pwd)
+PLUGIN=$(CDPATH= cd -- "$DIR/.." && pwd)
+RECOLECTOR="$PLUGIN/semana/recolectar.py"
+
+AHORA=""; MODO=""
+case "$1" in
+  --ahora) AHORA=1 ;;
+  --estado|--aviso) MODO=$1 ;;
+esac
+
+if ! command -v python3 >/dev/null 2>&1; then
+  [ "$MODO" = "--estado" ] && echo "semana|aviso|no hay python3 en esta Mac: Semana no puede subir las sesiones (instalá las Command Line Tools: xcode-select --install)"
+  [ -n "$AHORA" ] && echo "semana: no hay python3 en esta Mac; instalá las Command Line Tools (xcode-select --install)"
+  exit 0
+fi
+[ -r "$RECOLECTOR" ] || exit 0
+[ -n "$MODO" ] && exec python3 "$RECOLECTOR" "$MODO"
+
+# El token vive en el cajón del perfil (state-dir.sh), igual que para onebrain-save.
+[ -r "$PLUGIN/core/scripts/state-dir.sh" ] || exit 0
+. "$PLUGIN/core/scripts/state-dir.sh"
+TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
+if [ ! -s "$TOKEN_FILE" ]; then
+  [ -n "$AHORA" ] && echo "semana: esta Mac no tiene token de One Brain; conectala con /one-brain:connect y volvé a correr esto"
+  exit 0
+fi
+
+# Tope: una corrida cada 10 minutos (corre al final de cada turno). La marca es la hora del último
+# lanzamiento; --ahora la saltea, que es lo que usa el agente para forzar y verificar.
+ESTADO="${ONE_BRAIN_SEMANA_DIR:-$HOME/.onebrain/semana}"
+mkdir -p "$ESTADO" 2>/dev/null || exit 0
+MARCA="$ESTADO/ultimo-lanzamiento"
+T=$(date +%s)
+if [ -z "$AHORA" ]; then
+  ANTES=$(cat "$MARCA" 2>/dev/null)
+  case "$ANTES" in ''|*[!0-9]*) ANTES=0 ;; esac
+  [ $((T - ANTES)) -ge "${ONE_BRAIN_SEMANA_CADA:-600}" ] || exit 0
+fi
+printf '%s' "$T" > "$MARCA" 2>/dev/null
+
+ONE_BRAIN_TOKEN_FILE="$TOKEN_FILE" \
+ONE_BRAIN_URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}" \
+  exec python3 "$RECOLECTOR" ${AHORA:+--ahora}

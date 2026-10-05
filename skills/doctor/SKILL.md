@@ -12,6 +12,8 @@ Diagnosticás la instalación de esta máquina y devolvés un veredicto claro co
 1. Corré en Bash: `onebrain-doctor` (ya está en el PATH del plugin).
    Devuelve una línea por chequeo con el formato `clave|estado|detalle`, donde estado es `ok`, `aviso` o `falla`.
 
+   Además, si el comando existe, corré `onebrain-semana-push --estado`: devuelve UNA línea más con el mismo formato (`semana|ok|...` o `semana|aviso|...`).
+
 2. Leé la salida y armá el reporte. Los chequeos son:
    - **token** — si hay credencial guardada en esta máquina.
    - **perfil** — en qué perfil de esta máquina corre la sesión y qué cerebro tiene conectado (el nombre del cerebro sale del token, sin llamar al server). Si el token todavía es el heredado del perfil de siempre — no se reconectó éste aparte —, avisa en `aviso` con el comando para separarlos.
@@ -23,6 +25,7 @@ Diagnosticás la instalación de esta máquina y devolvés un veredicto claro co
    - **entrega** — si el contexto que el cerebro manda al arrancar la sesión llegó entero o hubo que recortarlo por tamaño. Es la falla que más contexto se comió históricamente y desde afuera no se ve.
    - **captura** — cuántas sesiones anteriores quedaron con trabajo sin destilar.
    - **conexion** — si el cerebro responde con este token.
+   - **semana** — si esta Mac está subiendo las sesiones de Claude Code a la vista Semana: cuándo fue el último envío aceptado, si el server rechazó algo, o si falta `python3`.
    - **version** — qué versión está corriendo, comparada con la que Claude Code tiene instalada. Si actualizó el plugin sin reiniciar, la sesión sigue usando la vieja y da `aviso`.
 
 ## Cómo lo reportás
@@ -42,6 +45,7 @@ Primero **el veredicto en una línea**: "está todo bien" o "encontré N problem
 | `captura` en `aviso` | No es un problema: hay trabajo de sesiones anteriores esperando destilarse. Ofrecele guardarlo ahora |
 | `conexion` 401/403 | El token no vale más: pedir uno nuevo y volver a conectar |
 | `conexion` sin respuesta | Probar la red/VPN y reintentar; si sigue, avisarle al operador |
+| `semana` en `aviso` | Correlo vos: `onebrain-semana-push --ahora` (sube lo pendiente y dice en una línea qué pasó). Si dice que falta `python3`, el arreglo es `xcode-select --install`; si dice que falta el token, el mismo arreglo que `token`. Si el server sigue rechazando, actualizar el plugin (abajo) |
 | `version` en `aviso` | Reiniciar Claude Code. Actualizó el plugin con la sesión abierta: quedó corriendo la versión vieja y los comandos nuevos no están disponibles. No hace falta volver a instalar nada |
 
 Si todo dio `ok`, decilo derecho y agregá que si igual no ve nada guardado, reinicie la sesión para que el conector tome el token.

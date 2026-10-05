@@ -41,5 +41,12 @@ OB_CLIENT=claude
 
 ob_session_start
 
+# Semana: UNA línea sólo si dejó de subir las sesiones o el server rechazó algo, con el comando que
+# lo arregla. Si está todo bien (o la Mac no tiene python3) no agrega nada.
+SEMANA_AVISO=""
+[ -x "$DIR/../bin/onebrain-semana-push" ] && SEMANA_AVISO=$("$DIR/../bin/onebrain-semana-push" --aviso 2>/dev/null)
+[ -n "$SEMANA_AVISO" ] && OB_STDOUT="${OB_STDOUT}
+${SEMANA_AVISO}"
+
 printf '%s' "$OB_STDOUT"
 exit 0

@@ -12,7 +12,8 @@
       {
         "matcher": "",
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-guard.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/stop-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/scripts/semana-stop.sh" }
         ]
       }
     ]
