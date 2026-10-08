@@ -3,91 +3,58 @@
 One Brain es la memoria colectiva de tu equipo: guardás decisiones y avances, y tu Claude
 Code arranca cada sesión sabiendo en qué está el equipo.
 
-## Requisitos
-- Claude Code (terminal). Si lo usás en la **app de escritorio**, tu alta se hace desde
-  la web (`/onboard`): ahí los pasos son los mismos salvo el primero, que no lleva `curl`.
-- Un entorno POSIX: Mac y Linux ya lo son; en **Windows**, Git Bash o WSL.
-- Tu **token** de acceso (te lo pasa quien te dio de alta; empieza con `ob_`).
+## Antes de empezar
+
+- **Claude Code instalado**, en la terminal o en la app. Si todavía no lo tenés, instalalo
+  primero: [cómo instalar Claude Code](https://code.claude.com/docs/es/setup). El comando de
+  One Brain lo busca, y si no lo encuentra se corta y tenés que pedir otro.
+- Una terminal: en Mac y Linux, la que ya viene; en **Windows**, Git Bash (viene con Git for
+  Windows) o WSL.
 
 `jq` **no** hace falta: donde el plugin necesita leer o armar JSON prueba `jq`, después
-`python3` y después `perl`, y le alcanza con cualquiera de los tres. Instalarlo no molesta,
-pero no instalarlo tampoco rompe nada — el `/one-brain:doctor` lo trata como opcional.
+`python3` y después `perl`, y le alcanza con cualquiera de los tres.
 
-## Armá tu espacio (una vez)
+## Conectarte (una vez por computadora)
 
-Pegá esto en tu terminal (en **Windows**, en **Git Bash**), con el nombre de tu empresa:
+1. Entrá a [onebrain.prophet.lat](https://onebrain.prophet.lat) con Google, o con tu mail y
+   una contraseña si te invitó alguien de tu equipo.
+2. Elegí **"Uso Claude Code"**. El panel te muestra un comando de una línea.
+3. Pegalo en tu terminal y apretá Enter. Instala el plugin, guarda tu llave de acceso y deja
+   las reglas de One Brain en tu `~/.claude/CLAUDE.md`. Lo que ya tenías escrito ahí no se
+   toca.
+4. Abrí Claude Code en cualquier carpeta y preguntale: "¿Qué sabe el cerebro de mi empresa?".
+   En el panel vas a ver cuando llega la primera consulta.
 
-    curl -fsSL https://onebrain.prophet.lat/setup.sh | bash -s -- "Tu Empresa"
+El comando sirve una sola vez y vence a los 15 minutos. Si se te venció, pedí otro en el panel.
+No hay que copiar ningún token ni reiniciar nada más: sólo abrir Claude Code **después** de que
+el comando terminó (una sesión que ya estaba abierta no lo ve).
 
-Te deja la carpeta `Documents/one-brain` **lista para trabajar**, no una carpeta vacía:
-
-- las reglas para que el cerebro se llene solo (`CLAUDE.md`);
-- la estructura de trabajo: `notas/`, `clientes/` (con una plantilla para dar de alta), `proyectos/`, `material/` y `tareas.md`;
-- **guardado automático**: cada vez que Claude termina, commitea lo que cambió. No hay que acordarse de guardar;
-- protecciones: no se pisan archivos con claves ni se corren comandos que borren cosas;
-- un acceso directo **"One Brain"** en el escritorio, para abrir Claude Code siempre en el lugar correcto.
-
-Es seguro correrlo de nuevo: sólo el `CLAUDE.md` se regenera (así las reglas quedan al día).
-Lo que hayas escrito vos no se toca.
-
-> **¿Ya tenés tu carpeta de trabajo?** Entonces NO corras esto: te crearía una carpeta paralela
-> que no vas a abrir nunca. En la web de alta elegí "Ya tengo mi carpeta de trabajo" y seguí por
-> ahí — las reglas se te instalan en el `CLAUDE.md` global.
-
-## Instalar el plugin (una vez)
-
-Abrí Claude Code (doble clic en "One Brain") y pegá esto, en orden. **Los reinicios NO son
-opcionales**: si conectás el token sin reiniciar antes, la skill `connect` todavía no está
-cargada y da "unknown skill".
-
-1. Agregá el marketplace e instalá el plugin:
-
-    /plugin marketplace add Prophet-git/one-brain-plugin
-    /plugin install one-brain@prophet
-
-2. **Cerrá Claude Code y volvé a abrirlo** (así se cargan las skills del plugin). Verificá
-   que al tipear `/one-brain:` te autocompleta los comandos.
-
-3. Conectá tu token:
-
-    /one-brain:connect <tu-token>
-
-4. **Cerrá Claude Code y volvé a abrirlo otra vez** (así el conector toma tu token).
-
-5. Confirmá con `/one-brain:status` que quedó conectado.
-
-> En Windows: cerrar y reabrir la ventana es más confiable que `/reload-plugins`. El plugin
-> necesita un entorno POSIX (WSL o Git Bash) — ver "¿Algo no anda?".
+**Otra computadora:** en el panel, **Ajustes → Mis computadoras**, pedí un comando nuevo y
+corrélo en esa máquina. Cada computadora queda con su nombre y la podés dar de baja sola.
 
 ## Mantener el plugin al día
 
-Los arreglos del plugin (la captura automática, los chequeos, los comandos) viajan en la
-versión: una instalación vieja falla de maneras que ya están resueltas. Desde la **terminal**
-(no adentro de Claude Code):
+El comando de instalación deja prendida la actualización automática, así que normalmente no
+tenés que hacer nada. Si One Brain te avisa al arrancar que tu versión quedó atrás, desde la
+**terminal** (no adentro de Claude Code):
 
     claude plugin marketplace update prophet
     claude plugin update one-brain@prophet
 
-**¿No usás la terminal?** Si trabajás en la app de escritorio, no hace falta que abras una
-consola: pedíselo a Claude Code, que puede correrlo él. Escribile:
+**¿No usás la terminal?** Pedíselo a Claude Code, que puede correrlo él. Escribile:
 
     Corré esto en Bash, tal cual: claude plugin marketplace update prophet && claude plugin update one-brain@prophet
 
-Es el mismo comando; sólo cambia quién lo tipea. El reinicio de abajo sigue siendo tuyo:
-Claude no puede reiniciar el proceso que lo está ejecutando.
-
-Después **cerrá Claude Code y volvé a abrirlo**. Esto último no es opcional ni cosmético:
-mientras el proceso siga vivo sigue usando la copia vieja, aunque el update haya bajado bien.
-`/clear` NO alcanza — resetea la conversación, no el proceso.
+Después **cerrá Claude Code y volvé a abrirlo**. Mientras el proceso siga vivo usa la copia
+vieja, aunque el update haya bajado bien. `/clear` no alcanza: resetea la conversación, no el
+proceso.
 
 Para ver qué versión estás usando: `claude plugin list` (la instalada) y `/one-brain:doctor`
 (la que está corriendo esta sesión; si no coinciden, te lo dice).
 
-Desde el arranque, si tu versión quedó atrás, One Brain te avisa solo al empezar la sesión.
-
 ## Primer arranque
 
-Al reconectar, One Brain te saluda. Si tu cerebro es nuevo, corré:
+Si tu cerebro es nuevo, corré:
 
     /one-brain:onboard
 
@@ -96,18 +63,18 @@ misma charla, con lo que nos contaste, dejamos cargadas las primeras memorias de
 así tu primera consulta ya devuelve algo en vez de un cerebro vacío.
 
 ## Uso diario
-- Guardá lo importante: pedile a Claude "guardá esto en One Brain" o usá `brain_save`.
+
+- Guardá lo importante: pedile a Claude "guardá esto en One Brain".
 - Preguntá: "¿en qué está <cliente/proyecto>?", "¿qué se decidió sobre X?".
-- Al arrancar cada sesión, el contexto del equipo se inyecta solo.
+- Al arrancar cada sesión, el contexto del equipo se carga solo.
 
-## Sacarle todo el provecho
-
-One Brain tiene doce herramientas y la mayoría de la gente usa tres. En el panel web, en la
-tab **Claude**, arriba de todo hay un pedido para copiar: lo pegás una vez en Claude Code y
-te deja escrito en tu `CLAUDE.md` cómo usarlas todas y cómo manejar las sesiones (cuándo conviene
-cortar y arrancar de nuevo en vez de compactar, por ejemplo). Se pega una vez y vale para siempre.
+One Brain tiene más de veinte herramientas y el comando de instalación ya le deja escrito a
+Claude cómo usarlas, en tu `~/.claude/CLAUDE.md`. No hace falta pegar nada más.
 
 ## ¿Algo no anda?
-- Corré `/one-brain:status` para diagnosticar.
-- "No aparecen las tools" → reiniciá la sesión (o `/reload-plugins`).
-- "token inválido" → volvé a conectar con `/one-brain:connect <token>`.
+
+- Corré `/one-brain:doctor`: te dice qué falta y cuál es el próximo paso.
+- "No aparecen las herramientas": cerrá Claude Code y volvé a abrirlo.
+- "Token inválido" o te dieron de baja una computadora: pedí un comando nuevo en el panel
+  (**Ajustes → Mis computadoras**) y corrélo de nuevo. Sirve también para reparar una
+  instalación vieja.

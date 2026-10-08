@@ -39,26 +39,24 @@ your Claude, on your machine.
 
 ## Getting in
 
-1. Sign in with Google at [onebrain.prophet.lat](https://onebrain.prophet.lat). Your brain
-   exists immediately, with no form to fill in and nothing to approve.
-2. Install the plugin in Claude Code:
+You need Claude Code installed first ([how to install it](https://code.claude.com/docs/en/setup)).
+The command below checks for it, and if it's missing it stops and you have to ask for a new one.
 
-   ```
-   /plugin marketplace add Prophet-git/one-brain-plugin
-   /plugin install one-brain@prophet
-   ```
+1. Go to [onebrain.prophet.lat](https://onebrain.prophet.lat) and sign in with Google, or with
+   your email and a password if a teammate invited you. Your brain exists immediately, with
+   no form to fill in and nothing to approve.
+2. Pick **"Uso Claude Code"** (I use Claude Code). The panel shows a one-line command. Paste
+   it in your terminal (on Windows, in Git Bash). It installs the plugin, saves your access
+   key and writes the One Brain rules to `~/.claude/CLAUDE.md`. The command works once and
+   expires after 15 minutes; if it does, ask the panel for a new one.
+3. Open Claude Code in any folder and ask it "what does my company's brain know?". The panel
+   shows when the first query arrives.
 
-   Then close Claude Code and open it again, so the skills load.
-3. Connect the token the signup gives you:
+There are no tokens to copy and no extra restarts. Just open Claude Code after the command
+has finished: a session that was already open won't see it.
 
-   ```
-   /one-brain:connect <your-token>
-   ```
-
-   Close and reopen once more, then run `/one-brain:status` to confirm.
-
-Do the restarts. While the process is alive it keeps using the old copy, and `/clear` won't
-help, because that resets the conversation and not the process.
+To connect another computer, open **Ajustes → Mis computadoras** in the panel and run the
+command it gives you on that machine.
 
 ## Daily use
 

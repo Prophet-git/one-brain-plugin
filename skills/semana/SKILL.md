@@ -1,6 +1,6 @@
 ---
 name: semana
-description: "Usar cuando el usuario pregunta por su semana de trabajo con Claude Code o la del equipo: \"qué hice esta semana\", \"reporte semanal\", \"cuántas horas le dediqué a X\", \"cuánto gastamos en Y\", \"Semana no se actualiza\", \"este proyecto está mal asignado\", \"/one-brain:semana\". Lee la semana con brain_semana, corrige asignaciones con brain_semana_asignar y fuerza el envío con onebrain-semana-push --ahora, sin pedirle nada a la persona."
+description: "Usar cuando el usuario pregunta por su semana de trabajo con Claude Code o la del equipo: \"qué hice esta semana\", \"reporte semanal\", \"cuántas horas le dediqué a X\", \"cuántas horas llevo con X\", \"cuánto me costó X en total\", \"cuánto gastamos en Y\", \"Semana no se actualiza\", \"este proyecto está mal asignado\", \"/one-brain:semana\". Lee la semana con brain_semana, corrige asignaciones con brain_semana_asignar y fuerza el envío con onebrain-semana-push --ahora, sin pedirle nada a la persona."
 ---
 
 # Semana
@@ -14,6 +14,7 @@ Llamá `brain_semana`:
 - `semana`: `"actual"` (default), `"pasada"` o una fecha `YYYY-MM-DD` de cualquier día de esa semana. La semana va de lunes 7:00 a lunes 7:00, en hora de Argentina.
 - `persona`: `"yo"` (default), el nombre de alguien (`"Fran"`) o `"equipo"`.
 - `detalle: true` si hace falta la lista de sesiones (título, proyecto, horario, commits).
+- `semana: "historico"` para lo acumulado por proyecto desde la primera sesión (ver la sección 5).
 
 Devuelve datos, no texto: `horas` (de reloj, lo paralelo cuenta una vez), `proyectos` (horas, costo y `pct_plan`), `dias`, `costo`, `tokens`, `modelos`, `subagentes`, `rutinas` (corridas automáticas: tienen costo pero no suman horas), `crecimiento` (las últimas 8 semanas por proyecto), `sin_asignar` y `estado`.
 
@@ -21,9 +22,9 @@ Devuelve datos, no texto: `horas` (de reloj, lo paralelo cuenta una vez), `proye
 
 Mirá `sin_asignar`. Cada entrada es tiempo que no cayó en ningún cliente:
 
-- **Un repo sin cliente** (`tipo: "repo sin cliente"`, ej. `whatsapp-responder`): si por el nombre, los `ejemplos` (títulos) o las `pistas` está claro de qué cliente es, asignalo con `brain_semana_asignar({ nombre: "whatsapp-responder", proyecto: "PEM" })`. Si no está claro, preguntá en una línea, con tu mejor candidato.
+- **Un repo sin cliente** (`tipo: "repo sin cliente"`, ej. `whatsapp-responder`): si por el nombre, los `ejemplos` (títulos) o las `pistas` está claro de qué cliente es, asignalo con `brain_semana_asignar({ nombre: "whatsapp-responder", proyecto: "Acme" })`. Si no está claro, preguntá en una línea, con tu mejor candidato.
 - **`General`** (`tipo: "sin señal"`): el bloque no tocó ningún repo ni nombró a nadie. Mirá sus `pistas` y `ejemplos`; si aparece un repo o un nombre de cliente, asigná ESE nombre. `General` en sí no se asigna.
-- Si la persona dice que un proyecto está mal ("eso es de Lempriere, no de PEM"), asigná el repo o el nombre que lo causó.
+- Si la persona dice que un proyecto está mal ("eso es de Acme, no de Globex"), asigná el repo o el nombre que lo causó.
 
 `brain_semana_asignar` suma un alias al cliente y corrige **todas** las semanas, también las viejas. Devuelve `bloques_que_cambian` y `cambios` (de qué a qué): decí en una línea qué movió. Rechaza personas, nombres que ya son otra entidad y proyectos que no existen; no lo fuerces, leé el motivo.
 
@@ -52,3 +53,13 @@ Tres líneas, con los números de `brain_semana` (después de corregir lo asigna
 3. **El plan**: qué % del plan se usó en la semana (`plan.pct_semana`). Si `plan` viene en null, decí que no hay muestras del plan esa semana; no lo estimes.
 
 Horas en formato `12 h 30 min`, costo en `US$` (es a precio de API, no lo que se paga con el plan). Sin adjetivos ni relleno.
+
+## 5. El histórico por proyecto
+
+Para "cuántas horas llevo con X", "cuánto me costó X en total" o "cuánto vale mi hora en X", llamá `brain_semana({ semana: "historico" })` (con `persona` como siempre). Es lo mismo que la tarjeta "Histórico por proyecto" del panel.
+
+Devuelve `total` y `proyectos` (por horas), cada uno con `horas`, `tokens` (entrada, salida y escritura de caché; `lectura_cache` va aparte), `costo` y `costo_por_hora` en US$ a precio de API, `desde` y `ultima_vez` (días de Argentina), y `pactado`: los precios de lo pactado en la ficha del proyecto, como texto libre. Con más de 13 proyectos, `otros` junta los que quedan desde el puesto 13.
+
+- Citá `pactado` tal cual está; no lo conviertas a número ni lo sumes. Si viene vacío, decí que la ficha no tiene precio pactado.
+- `costo_por_hora` es null cuando no hay horas (sólo rutinas automáticas): decilo así, no lo calcules.
+- El costo es a precio de API, no lo que se paga con el plan: aclaralo cuando lo compares con lo cobrado.

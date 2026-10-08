@@ -1,6 +1,6 @@
 ---
 name: proyecto-retomar
-description: Retomar el proyecto de un compañero — trae el contexto, el repo, cómo se levanta, cómo se deploya y escribe las credenciales en su lugar. Se activa cuando el usuario va a continuar algo que dejó otro ("retomo lo de Lempriere", "sigo el proyecto de Fran", "traeme las credenciales de X", "necesito entrar al proyecto X", "voy a seguir X donde lo dejaron").
+description: Retomar el proyecto de un compañero — trae el contexto, el repo, cómo se levanta, cómo se deploya y escribe las credenciales en su lugar. Se activa cuando el usuario va a continuar algo que dejó otro ("retomo lo de Acme", "sigo el proyecto de Ana", "traeme las credenciales de X", "necesito entrar al proyecto X", "voy a seguir X donde lo dejaron").
 ---
 
 # Retomar el proyecto de otro

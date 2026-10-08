@@ -1,11 +1,11 @@
 ---
 name: use-onebrain
-description: Usá One Brain (la memoria colectiva de la empresa) durante todo el trabajo. Consultá antes de arrancar una tarea; guardá apenas se cierra una decisión o un hito importante (no solo al final) y SÍ O SÍ al terminar la sesión. Aplicá cuando trabajes sobre cualquier cliente, proyecto, persona o tema de la empresa.
+description: Usá One Brain (la memoria colectiva de la empresa) durante todo el trabajo. Consultá antes de arrancar una tarea; guardá apenas se cierra una decisión o un hito importante, sin pedir permiso, y al terminar la sesión proponé en tanda lo que haya quedado. Aplicá cuando trabajes sobre cualquier cliente, proyecto, persona o tema de la empresa.
 ---
 
 # Usar One Brain
 
-One Brain es la memoria colectiva de la empresa, accesible por las tools MCP `brain_context`, `brain_search`, `brain_entity`, `brain_entities`, `brain_save`, `brain_mention`, `brain_ficha` y `brain_ficha_editar`. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
+One Brain es la memoria colectiva de la empresa, accesible por tools MCP. Las de todos los días: `brain_context`, `brain_search`, `brain_get`, `brain_save` y `brain_mention`. Además: `brain_entity`, `brain_entities`, `brain_entity_set_type`, `brain_timeline`, `brain_pulse`, `brain_semana`, `brain_semana_asignar`, `brain_project`, `brain_ficha`, `brain_ficha_editar`, `brain_claves`, `brain_material`, `brain_reuniones`, `brain_verify`, `brain_cierre` y `brain_conflicts`. Qué hace cada una para la persona está en la pestaña Claude del panel. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
 
 ## Cómo resolver cada tipo de pregunta (ruteo)
 
@@ -18,7 +18,14 @@ Antes de contestar, identificá qué tipo de pregunta es y usá el plan correspo
 | todo sobre un cliente / proyecto / persona / tema | `brain_entity` (acepta nombre **o alias**) |
 | "¿en qué está X?", "¿qué falta de X?" (un proyecto) | `brain_ficha` primero; si no tiene ficha, `brain_entity` |
 | "¿qué clientes/personas/temas hay?", "listá los proyectos" | `brain_entities` (filtra por `type` o `search`) |
-| qué pasó en un período ("en marzo", "esta semana") | `brain_search` con `since`/`until` (ver Fechas relativas) |
+| "¿qué hice esta semana?", horas por proyecto, reporte semanal | `brain_semana` |
+| qué pasó en un período en la memoria ("qué se decidió en marzo") | `brain_search` con `since`/`until` (ver Fechas relativas) |
+| en qué anduvo el equipo, "¿qué me perdí?" | `brain_pulse` |
+| cómo cambió una decisión, "¿por qué terminamos así?" | `brain_timeline` |
+| retomar un proyecto de otro (repo, deploy) | `brain_project` (o la skill `proyecto-retomar`) |
+| "¿tenemos la clave de X?" | `brain_claves` (nombres, nunca valores) |
+| traer reuniones de Granola | `brain_reuniones` (o la skill `reuniones`) |
+| memorias que se contradicen, ordenar el cerebro | `brain_conflicts` |
 | qué hizo una persona ("¿qué tocó Fran?") | `brain_search` con `author` |
 | listar/filtrar sin texto ("todas las decisiones de X") | `brain_search` **sin `query`**, con filtros (`type`, `entity`, `author`, `since`/`until`) |
 | cómo se conecta X con Y | `brain_entity` de X con `connect_to: Y` → `path` (directo o puentes a 2 saltos con evidencia) |
@@ -74,7 +81,7 @@ Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una p
 ## Ficha de proyecto
 Un proyecto puede tener ficha: el estado vigente en renglones (tareas, bloqueos, lo pactado, salvedades, diagrama). Es la fuente del estado; los handoffs y las memorias cuentan el porqué.
 - **Leela** con `brain_ficha` antes de trabajar en ese proyecto o de contestar "¿en qué está X?" o "¿qué falta?".
-- **Editala** con `brain_ficha_editar` cuando cambia el estado: una tarea cerró, se trabó, apareció una nueva, o hay algo que saber antes de tocar. Se mueve el renglón; no se reescribe todo. Mover a `hecho` pide `fuente`.
+- **Editala** con `brain_ficha_editar` cuando cambia el estado: una tarea cerró, se trabó, apareció trabajo nuevo que alguien tiene que hacer para avanzar, o hay algo que saber antes de tocar. Una duda para confirmar, un paso tuyo o esperar que el cliente confirme algo ya entregado no son tareas: la lista corta es la que sirve. Se mueve el renglón; no se reescribe todo. Mover a `hecho` pide `fuente`.
 - **Al guardar sobre un proyecto con ficha, siempre decidí las tareas**: los ids que cerró en `cierra_tareas` (pasan a `hecho` con la memoria como prueba) o `sin_cambios_en_tareas: true` si no cerró ninguna. Una tarea está hecha o no: sin una de las dos el guardado se rechaza y la respuesta lista las tareas abiertas con su id; reenviá con lo que corresponda.
 - Lo pactado con el cliente y lo que el cliente respondió los propone el agente; los confirma una persona en el panel.
 
@@ -87,5 +94,5 @@ One Brain te da continuidad entre sesiones. No la desperdicies —la mayoría de
 ## Niveles y confidencialidad
 Las entradas tienen nivel (1 dirección / 2 gerencia / 3 general) y pueden ser privadas de su autor. El server solo te devuelve lo que el usuario puede ver y lo hace cumplir — no intentes rodearlo. Si un dato no aparece porque es de nivel superior, tratalo como **inexistente**: respondé "no tengo registro de eso", NO "no te lo puedo decir" (que confirmaría que existe).
 
-## Cierre de sesión (SÍ O SÍ)
-Al terminar una sesión con trabajo real, **siempre** revisá que cada avance y decisión con señal haya quedado guardado —aunque ya hayas ido guardando durante la sesión—. Es el piso mínimo, no el único momento. Si algo quedó sin guardar, un recordatorio te lo va a avisar: no lo ignores.
+## Cierre de sesión
+Lo que cerró durante la sesión ya se guardó en el momento, sin pedir permiso. Al terminar una sesión con trabajo real, revisá si quedó algo con señal sin guardar: si quedó, **proponelo en una sola tanda** (skill `session-capture`, o la tarjeta de `brain_cierre`) y guardalo con el OK de la persona. Si algo quedó sin guardar, un recordatorio te lo va a avisar: no lo ignores.
