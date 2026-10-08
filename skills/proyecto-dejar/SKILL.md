@@ -50,7 +50,7 @@ El usuario está por soltar un proyecto y quiere que otra persona pueda seguirlo
    - Las tareas abiertas en `sigue`, y las trabadas en `bloqueado` con `bloqueado_en`.
    - Las salvedades: lo que el otro tiene que saber antes de tocar algo.
    - Lo pactado con el cliente, con su precio, si se habló. Queda sin confirmar hasta que lo confirme una persona en el panel.
-   - Si la solución tiene varias piezas, el `diagrama`: personas y sistemas, de dónde a dónde viaja la información, hasta 10 cajas, cada una `anda` o `falta`.
+   - Si la solución tiene varias piezas, el `diagrama`: personas y sistemas, de dónde a dónde viaja la información, con TODOS los servicios que usa el código, sin tope de cajas (revisá el repo: APIs externas, mails, analytics, crons), cada una `anda` o `falta`.
 
 9. **Dejá también el relato** de dónde quedó el trabajo: usá la skill `handoff`. El comando guarda el cómo entrar, la ficha guarda el estado y el handoff guarda el porqué y lo que quedó a mitad. Los tres juntos son lo que hace que el otro pueda seguir de verdad.
 
