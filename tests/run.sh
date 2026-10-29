@@ -699,23 +699,23 @@ HDR="$ROOT/scripts/headers.sh"
 H_HOME=$(mktemp -d)
 mkdir -p "$H_HOME/.config/one-brain"
 printf 'ob_token_normal' > "$H_HOME/.config/one-brain/token"
-assert_eq "headers: token normal" '{"Authorization":"Bearer ob_token_normal"}' \
+assert_eq "headers: token normal" '{"Authorization":"Bearer ob_token_normal","x-onebrain-client":"claude-code"}' \
   "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
 
 # Windows sin HOME: Git Bash a veces solo expone USERPROFILE y el helper quedaba mudo,
 # el usuario caía al login por email y creía que el token no servía.
-assert_eq "headers: sin HOME usa USERPROFILE" '{"Authorization":"Bearer ob_token_normal"}' \
+assert_eq "headers: sin HOME usa USERPROFILE" '{"Authorization":"Bearer ob_token_normal","x-onebrain-client":"claude-code"}' \
   "$(env -u HOME USERPROFILE="$H_HOME" sh "$HDR" 2>/dev/null)"
 
 # Token pegado desde un editor de Windows: CRLF y BOM UTF-8 adelante.
 printf '\357\273\277ob_token_bom\r\n' > "$H_HOME/.config/one-brain/token"
-assert_eq "headers: tolera BOM y CRLF" '{"Authorization":"Bearer ob_token_bom"}' \
+assert_eq "headers: tolera BOM y CRLF" '{"Authorization":"Bearer ob_token_bom","x-onebrain-client":"claude-code"}' \
   "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
 
 # Sin archivo pero con la variable de entorno (útil en máquinas donde no se puede escribir
 # en el perfil, y en CI).
 rm -f "$H_HOME/.config/one-brain/token"
-assert_eq "headers: cae a ONE_BRAIN_TOKEN" '{"Authorization":"Bearer ob_desde_env"}' \
+assert_eq "headers: cae a ONE_BRAIN_TOKEN" '{"Authorization":"Bearer ob_desde_env","x-onebrain-client":"claude-code"}' \
   "$(env HOME="$H_HOME" ONE_BRAIN_TOKEN=ob_desde_env sh "$HDR" 2>/dev/null)"
 
 assert_eq "headers: sin nada => objeto vacío" '{}' "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
@@ -724,7 +724,7 @@ assert_eq "headers: sin nada => objeto vacío" '{}' "$(env HOME="$H_HOME" sh "$H
 # Antes de normalizar, "$BASE/.config/..." mezclaba \ y / y podía no resolver el archivo.
 printf 'ob_token_normal' > "$H_HOME/.config/one-brain/token"
 H_WIN=$(printf '%s' "$H_HOME" | tr '/' '\\')
-assert_eq "headers: USERPROFILE con backslashes se normaliza" '{"Authorization":"Bearer ob_token_normal"}' \
+assert_eq "headers: USERPROFILE con backslashes se normaliza" '{"Authorization":"Bearer ob_token_normal","x-onebrain-client":"claude-code"}' \
   "$(env -u HOME USERPROFILE="$H_WIN" sh "$HDR" 2>/dev/null)"
 
 # Ni HOME ni USERPROFILE: antes armaba una ruta rota ("/.config/...") y buscaba ahí en
@@ -757,7 +757,7 @@ assert_eq "headers: archivo de token vacío avisa por qué" 0 "$?"
 # Sin este caso, el token salía con basura y el server daba 401 sin ninguna pista de por qué.
 printf '\377\376o\000b\000_\000t\000o\000k\000e\000n\000_\000u\000t\000f\0001\0006\000' \
   > "$H_HOME/.config/one-brain/token"
-assert_eq "headers: tolera UTF-16LE con BOM (NUL intercalado)" '{"Authorization":"Bearer ob_token_utf16"}' \
+assert_eq "headers: tolera UTF-16LE con BOM (NUL intercalado)" '{"Authorization":"Bearer ob_token_utf16","x-onebrain-client":"claude-code"}' \
   "$(env HOME="$H_HOME" sh "$HDR" 2>/dev/null)"
 
 # Token corrupto que sobrevive a la limpieza (ej. una comilla en el medio): mandado tal cual
@@ -770,6 +770,14 @@ printf '%s' "$SALIDA" | grep -q 'caracteres inválidos'
 assert_eq "headers: token corrupto avisa por qué" 0 "$?"
 
 rm -f "$H_HOME/.config/one-brain/token"
+
+# --- procedencia: el canal de guardado (onebrain-save → /api/entry) declara el programa ---
+# El server guarda de qué programa entró cada memoria (entries.via) con este header. Sin él, todo
+# lo que se guarda por el bin queda "desconocido" aunque el MCP sí lo mande.
+assert_eq "ob_via: Claude Code por default" "claude-code" "$(env -u OB_CLIENT sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; OB_CLIENT=claude; ob_via')"
+assert_eq "ob_via: Codex cuando el adaptador lo declara" "codex" "$(sh -c '. '"$ROOT"'/core/scripts/capture-lib.sh; OB_CLIENT=codex; ob_via')"
+grep -q 'x-onebrain-client: $(ob_via)' "$ROOT/core/scripts/capture-lib.sh"
+assert_eq "ob_try_save manda x-onebrain-client" 0 "$?"
 
 # --- skill onboard: el onboarding tiene que dejar el cerebro CON ALGO ADENTRO (T1.1) ---
 # Causa raíz de que 3 de los 4 cerebros vivos estén en CERO memorias: la persona escribía su
@@ -868,13 +876,36 @@ orden_instalacion() { # <archivo> -> "ok" si install < reinicio < connect
     printf 'mal (install=%s reinicio=%s connect=%s)' "$_i" "$_r" "$_c"
   fi
 }
-assert_eq "ONBOARDING.md: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/ONBOARDING.md")"
 assert_eq "README.md del plugin: reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/README.md")"
+
+# --- ONBOARDING.md y README.public.md: el camino del INSTALADOR, en orden ---
+# Desde el 7-oct-2026 (4eb132a) la doc para clientes ya no lista marketplace add → install →
+# connect: la persona entra al panel, elige "Uso Claude Code", pega UN comando que instala el
+# plugin y guarda la llave, y recién DESPUÉS abre Claude Code. El contrato es el mismo de antes
+# (la doc pública dice los pasos reales, en orden): si alguien abre Claude Code antes de que
+# termine el comando, esa sesión no ve el plugin y la persona cree que no anduvo. Por eso se
+# exige cada paso como ítem numerado, en este orden, y el aviso de la sesión ya abierta.
+# Busca en español y en inglés: README.public.md es la portada del repo público, en inglés.
+orden_instalador() { # <archivo> -> "ok" si entrar < "Uso Claude Code" < pegar el comando < abrir Claude Code
+  _f=$1
+  _e=$(grep -nE '^[0-9]+\. .*(Entrá|Go to).*onebrain\.prophet\.lat' "$_f" | head -n1 | cut -d: -f1)
+  _u=$(grep -nE '^[0-9]+\. .*Uso Claude Code' "$_f" | head -n1 | cut -d: -f1)
+  # "in your terminal" y no "paste it in...": en README.public.md el renglón corta entre "Paste" e "it".
+  _p=$(grep -niE 'pegalo en tu terminal|in your terminal' "$_f" | head -n1 | cut -d: -f1)
+  _a=$(grep -nE '^[0-9]+\. .*(Abrí Claude Code|Open Claude Code)' "$_f" | head -n1 | cut -d: -f1)
+  _v=$(grep -niE 'sesión que ya estaba abierta no lo ve|session that was already open won.t see it' "$_f" | head -n1 | cut -d: -f1)
+  if [ -n "$_e" ] && [ -n "$_u" ] && [ -n "$_p" ] && [ -n "$_a" ] && [ -n "$_v" ] \
+     && [ "$_e" -lt "$_u" ] && [ "$_u" -le "$_p" ] && [ "$_p" -lt "$_a" ]; then
+    printf 'ok'
+  else
+    printf 'mal (entrar=%s uso=%s pegar=%s abrir=%s aviso=%s)' "$_e" "$_u" "$_p" "$_a" "$_v"
+  fi
+}
+assert_eq "ONBOARDING.md: entrar → Uso Claude Code → pegar el comando → abrir Claude Code" "ok" "$(orden_instalador "$ROOT/ONBOARDING.md")"
 # README.public.md es el que publish-plugin.sh copia como README del repo público: la primera
-# página que ve alguien que llega al plugin sin conocernos. Quedaba fuera del assert, así que
-# el orden se custodiaba en las dos versiones internas y no en la que efectivamente se publica.
+# página que ve alguien que llega al plugin sin conocernos.
 if [ -f "$ROOT/README.public.md" ]; then
-  assert_eq "README.public.md (portada del repo público): reinicio ENTRE install y connect" "ok" "$(orden_instalacion "$ROOT/README.public.md")"
+  assert_eq "README.public.md (portada del repo público): entrar → Uso Claude Code → pegar el comando → abrir Claude Code" "ok" "$(orden_instalador "$ROOT/README.public.md")"
 fi
 
 # --- ONBOARDING.md: jq ya NO es requisito ---
@@ -1174,7 +1205,49 @@ assert_eq "flag desconocido => error 2 (no se traga el dato)" 2 "$(run_limited 3
 # --supersedes hereda el mismo guard: es un flag NUEVO, y el `shift 2` sin valor cuelga igual
 # que colgaba en los otros cinco. Sin este caso, el bug de P.2 volvía a entrar por la puerta nueva.
 assert_eq "--supersedes sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --supersedes)"
+assert_eq "--cierra-tareas sin valor => error 2, no cuelga" 2 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" --title T --content C --cierra-tareas)"
+# --help: un agente que llega sin contexto lo pide antes de guardar. Tiene que salir con 0, sin
+# encolar nada, y nombrar los seis tipos y los flags de tareas (si faltan, adivina y el server
+# le rechaza el guardado).
+HELP_OUT=$("$SAVE_BIN" --help 2>&1); HELP_RC=$?
+assert_eq "--help sale con 0" 0 "$HELP_RC"
+assert_eq "-h sale con 0" 0 "$(run_limited 3 env HOME="$TMP_HOME" "$SAVE_BIN" -h)"
+for _w in "Uso: onebrain-save" avance decision conocimiento evento handoff procedimiento --cierra-tareas --sin-cambios-en-tareas --supersedes --entities --area; do
+  printf '%s' "$HELP_OUT" | grep -q -- "$_w"; assert_eq "--help nombra $_w" 0 "$?"
+done
 rm -rf "$TMP_HOME"
+export HOME="$(mktemp -d)"
+"$SAVE_BIN" --help >/dev/null 2>&1
+assert_eq "--help no encola nada" 0 "$(ls "$(ob_queue_dir)" 2>/dev/null | wc -l | tr -d ' ')"
+# Control: en la misma cola, un guardado sin token SÍ encola. Sin esto, el 0 de arriba pasaría
+# también si la ruta de la cola estuviera mal.
+"$SAVE_BIN" --title T --content C >/dev/null 2>&1
+assert_eq "control: un guardado sin token encola en esa misma cola" 1 "$(ls "$(ob_queue_dir)" 2>/dev/null | wc -l | tr -d ' ')"
+
+# --- onebrain-save: --cierra-tareas y --sin-cambios-en-tareas llegan al payload ---
+# El server rechaza (422) una memoria sobre un proyecto con tareas abiertas que no trae
+# cierra_tareas ni sin_cambios_en_tareas. Misma técnica que --supersedes: sin token, el payload
+# se inspecciona en la cola.
+T_ID1="11111111-1111-4111-8111-111111111111"; T_ID2="22222222-2222-4222-8222-222222222222"
+export HOME="$(mktemp -d)"
+"$SAVE_BIN" --type avance --title "T" --content "C" --cierra-tareas "$T_ID1,$T_ID2" >/dev/null 2>&1
+QF=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -q "\"cierra_tareas\":\[\"$T_ID1\",\"$T_ID2\"\]" "$QF" 2>/dev/null
+assert_eq "--cierra-tareas id1,id2: el payload trae cierra_tareas con los dos ids" 0 "$?"
+grep -q '"sin_cambios_en_tareas"' "$QF" 2>/dev/null
+assert_eq "--cierra-tareas solo: el payload NO trae sin_cambios_en_tareas" 1 "$?"
+export HOME="$(mktemp -d)"
+"$SAVE_BIN" --type decision --title "T" --content "C" --sin-cambios-en-tareas >/dev/null 2>&1
+QF=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -q '"sin_cambios_en_tareas":true' "$QF" 2>/dev/null
+assert_eq "--sin-cambios-en-tareas: el payload trae sin_cambios_en_tareas:true" 0 "$?"
+export HOME="$(mktemp -d)"
+"$SAVE_BIN" --type avance --title "T" --content "C" >/dev/null 2>&1
+QF=$(ls "$(ob_queue_dir)"/queued-* 2>/dev/null | head -n1)
+grep -qE '"cierra_tareas"|"sin_cambios_en_tareas"' "$QF" 2>/dev/null
+assert_eq "sin flags de tareas: el payload no trae ninguna de las dos claves" 1 "$?"
+export HOME="$(mktemp -d)"
+assert_eq "--cierra-tareas con un id que no es uuid => error 2" 2 "$(run_limited 3 "$SAVE_BIN" --title T --content C --cierra-tareas "la tarea de ayer")"
 
 # --- T1.3: hacer VISIBLE el retorno del cerebro (quién lo escribió y cuándo) ---------------
 # Todo lo que trae el cerebro entra como additionalContext de un hook: lo consume el MODELO y
@@ -1484,8 +1557,11 @@ PATH="$FAKE_400:$PATH" ob_flush_queue
 PATH=$OB_PATH_ORIG
 [ -e "$(ob_queue_dir)/queued-rechazado" ]
 assert_eq "dead-letter: un 400 NO vuelve a la cola de reintento" 1 "$?"
-ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
-assert_eq "dead-letter: el payload rechazado se conserva (no se borra en silencio)" 0 "$?"
+# Se mira si EXISTE un dead-*, no el código de salida de `ls`: sin coincidencias, el ls de macOS
+# sale con 1 y el de GNU (el runner de la CI) con 2, y el assert de "no hay dead-letter" fallaba
+# sólo en Linux aunque la cola se portaba bien.
+hay_dead_letter() { for _dl in "$(ob_queue_dir)"/dead-*; do [ -e "$_dl" ] && { printf 'si'; return; }; done; printf 'no'; }
+assert_eq "dead-letter: el payload rechazado se conserva (no se borra en silencio)" si "$(hay_dead_letter)"
 
 # Un 500 (o la red caída) SÍ tiene que volver a la cola: es transitorio, reintentar es correcto.
 export HOME="$(mktemp -d)"
@@ -1503,8 +1579,7 @@ PATH="$FAKE_500:$PATH" ob_flush_queue
 PATH=$OB_PATH_ORIG
 [ -e "$(ob_queue_dir)/queued-transitorio" ]
 assert_eq "dead-letter: un 503 SÍ vuelve a la cola (falla transitoria)" 0 "$?"
-ls "$(ob_queue_dir)"/dead-* >/dev/null 2>&1
-assert_eq "dead-letter: un 503 no se manda a dead-letter" 1 "$?"
+assert_eq "dead-letter: un 503 no se manda a dead-letter" no "$(hay_dead_letter)"
 
 # 429 es rate limit, no "tu payload está mal": reintentar es lo correcto (mismo criterio que
 # onebrain-save, que encola 429 y rechaza el resto de los 4xx).

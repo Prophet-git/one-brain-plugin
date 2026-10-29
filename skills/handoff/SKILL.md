@@ -25,6 +25,12 @@ Destilás el estado de la sesión en un handoff conciso y lo guardás en el cere
 5. Proponéselo al usuario: "este es el handoff, ¿lo guardo así o ajustás?".
 6. Con el OK → `brain_save` con `type: "handoff"`, un `title` claro (incluí el proyecto), el handoff en `content_md`, y `entities` = el proyecto/tema tocado. Si el proyecto tiene ficha, sumá `sin_cambios_en_tareas: true` (las tareas ya las moviste en el paso 1) o `cierra_tareas` con las que cierra este handoff: sin una de las dos no se guarda. Reportá el `entry_id`.
 
+## Un hilo, un handoff vivo
+- Otra vuelta del mismo trabajo repite la cabeza del título y numera ("Alternativo vuelta 6: …" tras "Alternativo vuelta 5: …"). Así, con una entidad en común, el nuevo **reemplaza solo** al anterior tuyo (`reemplazo_handoffs` en la respuesta; el viejo queda vencido, no borrado).
+- Si la respuesta trae `quizas_mismo_hilo` y de verdad es el mismo trabajo, cerralos con `brain_cerrar_handoffs` (`fuente`: este `entry_id`). Si no, nada.
+- Tus handoffs vigentes de trabajos ya juntados, deployados o abandonados: cerralos con `brain_cerrar_handoffs` y su prueba (commit, deploy o id).
+- Dos pedidos distintos del mismo cliente son dos hilos: no los numeres como vueltas.
+
 ## Reglas
 - Concreto > vago: "resume en el wizard paso 3, falta el submit" gana a "seguir con el wizard".
 - Nunca guardes secrets ni datos personales sensibles.

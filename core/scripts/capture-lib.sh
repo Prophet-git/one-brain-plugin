@@ -79,6 +79,16 @@ ob_host_name() {
   esac
 }
 
+# ob_via — el valor del header x-onebrain-client: de qué programa entra lo que se guarda (columna
+# entries.via del server). Misma fuente que ob_host_name. El nombre del header y los valores
+# viven en src/lib/via.ts; el headersHelper de Claude Code y la config de Codex mandan los mismos.
+ob_via() {
+  case "${OB_CLIENT:-$(ob_host)}" in
+    codex) printf 'codex' ;;
+    *)     printf 'claude-code' ;;
+  esac
+}
+
 # ob_pending_dir: markers de captura. Carpeta ESTABLE (sobrevive reinicios). Antes usaba
 # ${CLAUDE_PLUGIN_DATA:-/tmp}: /tmp se limpia al reiniciar → se perdían pendientes.
 ob_pending_dir() {
@@ -368,6 +378,7 @@ ob_try_save() {
   OB_ULTIMO_RECHAZO=""
   _resp=$(curl -s --max-time 8 -w '\n%{http_code}' -X POST \
     -H "Authorization: Bearer $_tok" -H "content-type: application/json" \
+    -H "x-onebrain-client: $(ob_via)" \
     -d "$1" "$_url/api/entry" 2>/dev/null)
   _code=$(printf '%s' "$_resp" | tail -n1)
   case "$_code" in
@@ -463,10 +474,22 @@ ob_flush_queue() {
 
 # ob_is_stale <path>: 0 (stale/inactivo) si el archivo no se modificó en los últimos 10 min,
 # o si no existe. 1 si cambió recién (sesión probablemente viva → no rescatar todavía).
+# ob_mtime <path>: epoch de la última modificación, o falla (sin imprimir nada) si no se puede
+# saber. GNU primero y BSD después, y el resultado se valida como número. El orden inverso
+# (`stat -f %m || stat -c %Y`) rompía Linux: en GNU `-f` es "file system", toma `%m` como un
+# archivo más, imprime un bloque de texto del filesystem y sale con 1; el `||` le pegaba el
+# epoch abajo y esa basura multilínea entraba en `$((...))`, que en sh es un error FATAL: el
+# arranque entero moría sin salida. Así estuvo la CI en rojo desde el 29-jul-2026.
+ob_mtime() {
+  _om=$(stat -c %Y "$1" 2>/dev/null) || _om=$(stat -f %m "$1" 2>/dev/null) || return 1
+  case "$_om" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$_om"
+}
+
 ob_is_stale() {
   [ -e "$1" ] || return 0
   _now=$(date +%s 2>/dev/null) || return 0
-  _mt=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null) || return 0
+  _mt=$(ob_mtime "$1") || return 0
   [ $((_now - _mt)) -ge 600 ]
 }
 
@@ -518,7 +541,7 @@ ob_gc_pending() {
   _cut=$((_days * 86400))
   for _g in "$_pd"/*; do
     [ -f "$_g" ] || continue
-    _gm=$(stat -f %m "$_g" 2>/dev/null || stat -c %Y "$_g" 2>/dev/null) || continue
+    _gm=$(ob_mtime "$_g") || continue
     [ $((_now - _gm)) -gt "$_cut" ] && rm -f "$_g" 2>/dev/null
   done
   return 0

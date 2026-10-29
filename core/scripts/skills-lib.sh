@@ -43,7 +43,7 @@ ob_skills_manifest() {
 
 # Imprime {"so":"darwin","arch":"arm64","tiene":["mlx-whisper"]}
 ob_perfil_maquina() {
-  _obso=$(uname -s 2>/dev/null | tr '[:upper:]' '[:lower:]')
+  _obso=$( (uname -s | tr '[:upper:]' '[:lower:]') 2>/dev/null)
   case "$_obso" in
     darwin) _obso=darwin ;;
     linux)  _obso=linux ;;

@@ -105,8 +105,11 @@ case "$TOKEN" in
     ;;
 esac
 
+# x-onebrain-client: de qué programa entra lo que se guarda (columna entries.via, ver src/lib/via.ts
+# del server). Lo pone el programa y no el modelo, que no tiene cómo tocar los headers del MCP. Va
+# sólo con token: sin token el server ni mira el pedido.
 if [ -n "$TOKEN" ]; then
-  printf '{"Authorization":"Bearer %s"}' "$TOKEN"
+  printf '{"Authorization":"Bearer %s","x-onebrain-client":"claude-code"}' "$TOKEN"
 else
   printf '{}'
   # REASON ya trae su propia acción concreta cuando hay un motivo específico; si no hay

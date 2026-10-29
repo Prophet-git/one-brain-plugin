@@ -7,6 +7,33 @@
 DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 . "$DIR/../scripts/capture-lib.sh"
 
+usage() {
+  cat <<'USO'
+Uso: onebrain-save --title "T" --content "C" [--type avance] [--entities "a,b"] [--area x]
+                   [--supersedes <uuid>] [--cierra-tareas "<id>,<id>"] [--sin-cambios-en-tareas]
+
+Guarda una memoria en One Brain. Si sale bien imprime el entry_id; si la red o el server
+fallan, la encola para reintentar. Un rechazo del server (4xx) no se encola: sale con 1.
+
+Tipos válidos (--type, por defecto avance):
+  avance, decision, conocimiento, evento, handoff, procedimiento
+
+Flags:
+  --title <texto>             título de la memoria (obligatorio)
+  --content <texto>           cuerpo en markdown (obligatorio)
+  --type <tipo>               uno de los tipos de arriba
+  --entities "a,b"            clientes, proyectos o personas que toca, separados por coma
+  --area <area>               área; si no va, hereda la del autor
+  --supersedes <uuid>         id de la memoria que ésta reemplaza o corrige
+  --cierra-tareas "<id>,<id>" ids de las tareas de la ficha que esta memoria deja hechas
+  --sin-cambios-en-tareas     la memoria no cerró ninguna tarea de la ficha
+  -h, --help                  muestra esta ayuda
+
+Sobre un proyecto con tareas abiertas en su ficha va --cierra-tareas o --sin-cambios-en-tareas;
+sin ninguno de los dos el server rechaza el guardado y lista las tareas abiertas con su id.
+USO
+}
+
 TYPE=avance; TITLE=""; CONTENT=""; ENTITIES=""; AREA=""; SUPERSEDES=""; CIERRA=""; SIN_CAMBIOS=""
 # OJO con `shift 2`: en POSIX sh, si queda UN solo argumento, falla y NO baja $# — el while
 # gira para siempre. Pasa cuando el modelo arma el comando y un flag queda sin valor (alcanza
@@ -16,6 +43,7 @@ need_val() { # <flag> <cantidad de args restantes>
 }
 while [ $# -gt 0 ]; do
   case "$1" in
+    -h|--help) usage; exit 0 ;;
     --type)     need_val "$1" $#; TYPE=$2; shift 2 ;;
     --title)    need_val "$1" $#; TITLE=$2; shift 2 ;;
     --content)  need_val "$1" $#; CONTENT=$2; shift 2 ;;

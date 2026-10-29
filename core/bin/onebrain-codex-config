@@ -65,7 +65,18 @@ if [ "$TOKEN" = "--reconciliar" ]; then
       }
     ' "$CONFIG" 2>/dev/null || true)
   fi
-  [ "$DESEADO" = "$ACTUAL" ] && exit 0
+  # Además del token, el header de procedencia (x-onebrain-client, ver más abajo): una config
+  # escrita antes de que existiera lo trae sin él, y sin reescribirla todo lo de Codex quedaría
+  # "desconocido" en el cerebro para siempre.
+  CON_VIA=""
+  if [ -f "$CONFIG" ]; then
+    CON_VIA=$(awk -v re="$RE_SECCION" '
+      $0 ~ re { dentro = 1; next }
+      /^[[:space:]]*\[/ { dentro = 0 }
+      dentro && /^[[:space:]]*x-onebrain-client[[:space:]]*=/ { print "si"; exit }
+    ' "$CONFIG" 2>/dev/null || true)
+  fi
+  [ "$DESEADO" = "$ACTUAL" ] && [ "$CON_VIA" = "si" ] && exit 0
   TOKEN="$DESEADO"
 fi
 
@@ -131,6 +142,7 @@ enabled = true
 
 [mcp_servers.one-brain.http_headers]
 Authorization = "Bearer $TOKEN"
+x-onebrain-client = "codex"
 TOML
 
 mv "$TMP" "$CONFIG"
