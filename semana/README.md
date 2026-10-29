@@ -3,7 +3,8 @@
 Sube las sesiones de Claude Code de esta Mac a la vista Semana de One Brain.
 
 - `recolectar.py`: lee `~/.claude/projects` (o `$CLAUDE_CONFIG_DIR/projects`), parte cada sesión en
-  bloques (una pausa de más de 30 minutos corta) y sube a `/api/semana/bloques` sólo lo que cambió.
+  bloques (una pausa de más de 30 minutos corta, y también pasar a otro proyecto por más de 10
+  minutos: ver `por_proyecto`) y sube a `/api/semana/bloques` sólo lo que cambió.
   Python 3.9 sin dependencias. Estado en `~/.onebrain/semana/` (`cache.json`, `ultimo-envio.json`,
   `rechazos.log`).
 - `../bin/onebrain-semana-push`: lo corre con el token del perfil. A mano sirve para ver qué subió.

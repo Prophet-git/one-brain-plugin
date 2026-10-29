@@ -1,7 +1,7 @@
 """Semana: junta las sesiones de Claude Code de esta Mac y las sube a One Brain.
 
 Lee ~/.claude/projects (o $CLAUDE_CONFIG_DIR/projects), parte cada sesión en bloques de trabajo
-(una pausa de más de 30 minutos corta el bloque) y sube a /api/semana/bloques sólo lo que cambió
+(una pausa de más de 30 minutos corta el bloque, y también un cambio de proyecto) y sube a /api/semana/bloques sólo lo que cambió
 desde la última corrida. También sube las muestras nuevas del % del plan que anota el statusline
 en ~/.semana/plan.jsonl.
 
@@ -37,6 +37,13 @@ from pathlib import Path
 HOME = Path.home()
 CODE = HOME / "Code"
 PAUSA_MS = 30 * 60 * 1000
+# Un cambio de proyecto sin pausa parte el bloque sólo si dura al menos esto. Chief (cwd = vault) pasa
+# de Lempriere a Alternativo a Clama-Lac en la misma sesión (29-oct-2026: un bloque de 10:17 a 15:18
+# pintado entero de un solo proyecto), pero también mira de pasada otro repo ("fijate cómo lo hace
+# X"): un pedido de menos de 10 minutos a otro repo es un toque, no un cambio de proyecto.
+CAMBIO_MIN_MS = 10 * 60 * 1000
+# El título de un tramo sale de lo que se pidió en él: corto, para que entre en el calendario.
+TITULO_MAX = 80
 # El servidor acepta hasta 500 por request. Un bloque con muchos subagentes pesa: 200 deja margen
 # para no rozar el tope de tamaño de body de Vercel (4,5 MB).
 LOTE = 200
@@ -200,8 +207,11 @@ def leer_mensajes(path):
                 if txt:
                     actividad.append(ms)
                     extra["primer_mensaje"] = extra["primer_mensaje"] or txt
-                    if (d.get("origin") or {}).get("kind", "human") == "human":
+                    humano = (d.get("origin") or {}).get("kind", "human") == "human"
+                    if humano:
                         extra.setdefault("humanos", []).append(ms)
+                    # cada pedido abre un turno: es donde puede cambiar el proyecto (ver por_proyecto)
+                    extra.setdefault("turnos", []).append((ms, txt, humano))
                 continue
             m = d.get("message") or {}
             mid = m.get("id") or d.get("uuid")
@@ -283,6 +293,7 @@ def parsear_sesion(path):
         # claude -p y el Agent SDK: rutinas que corren solas, no trabajo frente a la pantalla
         "automatica": extra["entrypoint"] == "sdk-cli",
         "humanos": extra.get("humanos", []),
+        "turnos": sorted(extra.get("turnos", []), key=lambda t: t[0]),
         "mensajes": mensajes,
         "actividad": actividad,
         "subagentes": parsear_subagentes(path),
@@ -299,56 +310,132 @@ def repo_de_cwd(cwd):
     return None if r == VAULT else r
 
 
+def familia(repo):
+    """Repos que son el mismo proyecto para partir: los worktrees sueltos de Orca
+    (trama-web-deploy-wt) y los hermanos (clamalac-cerca, clamalac-sucursal) comparten la primera
+    palabra. Sólo decide dónde cortar: el bloque manda los repos tal cual y el servidor resuelve."""
+    palabra = re.split(r"[-_.]", repo)[0]
+    return palabra if len(palabra) >= 3 else repo
+
+
+def resumir(texto):
+    t = " ".join(texto.split())
+    if len(t) <= TITULO_MAX:
+        return t
+    return t[:TITULO_MAX].rsplit(" ", 1)[0] + "…"
+
+
+def por_proyecto(s, ini, fin):
+    """Parte un tramo sin pausas donde cambia el proyecto. Devuelve [(inicio, familia)], el primero
+    en `ini`. Cada pedido (mensaje escrito) abre un turno; el turno es del repo que más tocó, y uno
+    que no tocó ninguno ("y ahora?") sigue con el de antes. Turnos seguidos del mismo repo forman un
+    tramo, y uno de menos de CAMBIO_MIN_MS se suma al anterior: un toque suelto no parte el bloque."""
+    cortes = sorted({ini} | {t[0] for t in s.get("turnos", []) if ini < t[0] <= fin})
+    tramos = []
+    for k, c in enumerate(cortes):
+        hasta = cortes[k + 1] if k + 1 < len(cortes) else fin + 1
+        peso = Counter()
+        for m in s["mensajes"]:
+            if c <= m["ts"] < hasta:
+                for repo, n in m["repos"].items():
+                    if repo != VAULT:
+                        peso[familia(repo)] += n
+        fam = peso.most_common(1)[0][0] if peso else None
+        if fam is None and tramos:
+            continue  # sigue con el de antes
+        if tramos and (tramos[-1][1] is None or tramos[-1][1] == fam):
+            tramos[-1][1] = fam
+            continue
+        tramos.append([c, fam])
+
+    def dura(j, lista):
+        return (lista[j + 1][0] if j + 1 < len(lista) else fin) - lista[j][0]
+
+    juntos = []
+    for j, t in enumerate(tramos):
+        if juntos and (dura(j, tramos) < CAMBIO_MIN_MS or juntos[-1][1] == t[1]):
+            continue  # se suma al anterior
+        juntos.append(list(t))
+    # uno corto al principio va con el que sigue (no hay anterior al que sumarse)
+    if len(juntos) > 1 and dura(0, juntos) < CAMBIO_MIN_MS:
+        juntos[1][0] = ini
+        juntos.pop(0)
+    return [tuple(t) for t in juntos]
+
+
 def bloques(s):
-    """Los bloques de una sesión, con las señales crudas del contrato de /api/semana/bloques."""
+    """Los bloques de una sesión, con las señales crudas del contrato de /api/semana/bloques.
+
+    Una pausa de más de PAUSA_MS corta un bloque; adentro de cada tramo, también un cambio de
+    proyecto (por_proyecto). Los ids: `sesion#n` por pausa, como siempre, y `sesion#n.k` para el
+    proyecto k > 0 de ese tramo. Así reenviar una sesión que antes era un solo bloque pisa el viejo
+    con su primer proyecto y suma los otros: las horas no se duplican y no hace falta migrar."""
     if not s["actividad"]:
         return []
-    tramos = [[s["actividad"][0], s["actividad"][0]]]
+    pausas = [[s["actividad"][0], s["actividad"][0]]]
     for ms in s["actividad"][1:]:
-        if ms - tramos[-1][1] > PAUSA_MS:
-            tramos.append([ms, ms])
+        if ms - pausas[-1][1] > PAUSA_MS:
+            pausas.append([ms, ms])
         else:
-            tramos[-1][1] = ms
+            pausas[-1][1] = ms
+    partes = [(i, ini, fin, por_proyecto(s, ini, fin)) for i, (ini, fin) in enumerate(pausas)]
+    # Una sesión que pasó por más de un proyecto se titula tramo por tramo: el título de la sesión
+    # ("Agente enfocado en Lempriere") es lo que se pidió al abrirla, no lo que se hizo después.
+    varios = len({f for *_, cortes in partes for _, f in cortes if f}) > 1
     cwd = repo_de_cwd(s["cwd"])
     salida = []
-    for i, (ini, fin) in enumerate(tramos):
-        msjs = [m for m in s["mensajes"] if ini <= m["ts"] <= fin]
-        subs = [x for x in s["subagentes"] if ini <= x["inicio"] <= fin + PAUSA_MS]
-        repos = Counter()
-        entidades = Counter()
-        tok = {k: 0 for k in CLAVES_TOKENS}
-        modelos = Counter()
-        c = 0.0
-        for m in msjs:
-            repos.update(m["repos"])
-            entidades.update(m["entidades"])
-            tok = sumar(tok, m["tokens"])
-            modelos[m["modelo"]] += 1
-            c += costo(m["modelo"], m["tokens"])
-        for x in subs:
-            tok = sumar(tok, x["tokens"])
-            c += x["costo"]
-            repos.update(x["_repos"])
-        # el vault no dice nada: Bauti trabaja siempre desde ahí
-        repos.pop(VAULT, None)
-        salida.append({
-            "bloque_id": f"{s['id']}#{i}",
-            "sesion": s["id"],
-            # un tramo sin ningún mensaje escrito por una persona lo disparó un /loop, un cron o un aviso
-            "automatica": s.get("automatica", False) or not any(ini <= h <= fin for h in s.get("humanos", [])),
-            "inicio": ini,
-            "fin": max(fin, ini + 60_000),
-            "titulo": s["titulo"],
-            "primer_mensaje": s["primer_mensaje"] if i == 0 else None,
-            "modelos": dict(modelos),
-            "tokens": tok,
-            "costo": round(c, 4),
-            "repos": dict(repos),
-            "entidades": dict(entidades),
-            "cwd_repo": cwd,
-            "subagentes": [{k: v for k, v in x.items() if k != "_repos"} for x in subs],
-            "commits": [],
-        })
+    for i, ini, fin, cortes in partes:
+        for k, (desde, _) in enumerate(cortes):
+            ultimo = k + 1 == len(cortes)
+            hasta = fin if ultimo else cortes[k + 1][0]
+            dentro = (lambda ms, d=desde, h=hasta, u=ultimo: d <= ms <= h if u else d <= ms < h)
+            msjs = [m for m in s["mensajes"] if dentro(m["ts"])]
+            # un subagente que arrancó al final del tramo puede seguir durante la pausa
+            subs = [x for x in s["subagentes"] if desde <= x["inicio"] <= fin + PAUSA_MS] if ultimo else \
+                [x for x in s["subagentes"] if dentro(x["inicio"])]
+            repos = Counter()
+            entidades = Counter()
+            tok = {k2: 0 for k2 in CLAVES_TOKENS}
+            modelos = Counter()
+            c = 0.0
+            for m in msjs:
+                repos.update(m["repos"])
+                entidades.update(m["entidades"])
+                tok = sumar(tok, m["tokens"])
+                modelos[m["modelo"]] += 1
+                c += costo(m["modelo"], m["tokens"])
+            for x in subs:
+                tok = sumar(tok, x["tokens"])
+                c += x["costo"]
+                repos.update(x["_repos"])
+            # el vault no dice nada: Bauti trabaja siempre desde ahí
+            repos.pop(VAULT, None)
+            if varios:
+                turnos = [t for t in s.get("turnos", []) if dentro(t[0])]
+                pedido = next((t[1] for t in turnos if t[2]), None) or next((t[1] for t in turnos), None)
+                titulo = resumir(pedido) if pedido else (repos.most_common(1)[0][0] if repos else s["titulo"])
+                primer = pedido
+            else:
+                titulo = s["titulo"]
+                primer = s["primer_mensaje"] if i == 0 else None
+            salida.append({
+                "bloque_id": f"{s['id']}#{i}" + (f".{k}" if k else ""),
+                "sesion": s["id"],
+                # un tramo sin ningún mensaje escrito por una persona lo disparó un /loop, un cron o un aviso
+                "automatica": s.get("automatica", False) or not any(dentro(h) for h in s.get("humanos", [])),
+                "inicio": desde,
+                "fin": max(hasta, desde + 60_000),
+                "titulo": titulo,
+                "primer_mensaje": primer,
+                "modelos": dict(modelos),
+                "tokens": tok,
+                "costo": round(c, 4),
+                "repos": dict(repos),
+                "entidades": dict(entidades),
+                "cwd_repo": cwd,
+                "subagentes": [{k2: v for k2, v in x.items() if k2 != "_repos"} for x in subs],
+                "commits": [],
+            })
     return salida
 
 
@@ -408,11 +495,16 @@ def escribir_json(p, datos):
     os.replace(str(tmp), str(p))
 
 
+# Va en la firma de cada archivo: subirla reenvía todo una vez cuando cambia cómo se arman los
+# bloques. v2 (29-oct-2026): los tramos por proyecto de por_proyecto.
+VERSION_BLOQUES = "v2"
+
+
 def firma(f):
     st = f.stat()
     sub = f.with_suffix("") / "subagents"
     sub_mtime = max((x.stat().st_mtime for x in sub.rglob("*")), default=0) if sub.is_dir() else 0
-    return f"{st.st_mtime}:{st.st_size}:{sub_mtime}"
+    return f"{VERSION_BLOQUES}:{st.st_mtime}:{st.st_size}:{sub_mtime}"
 
 
 def leer_plan(plan, desde_ts):

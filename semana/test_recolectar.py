@@ -175,6 +175,105 @@ def test_titulo_custom_le_gana_al_de_ia(tmp_path):
     assert r.parsear_sesion(p)["titulo"] == "Mi título"
 
 
+# ── Una sesión que pasa de un proyecto a otro sin pausa (Chief, 29-oct-2026) ───────────────────
+
+MIN = 60_000
+
+
+def tocar(ms, msg_id, repo):
+    return asistente(ms, msg_id, tool_input={"file_path": f"{HOME}/Code/{repo}/src/a.ts"})
+
+
+def tres_proyectos_seguidos():
+    """Lempriere, Alternativo y Clama-Lac uno atrás del otro, sin pausa, con un subagente en el
+    segundo. Repos inventados para que no dependan de lo que haya en ~/Code."""
+    lineas = [usuario(T0, "arreglá el login de alfa"), usuario(T0, "<command-name>/x</command-name>")]
+    lineas += [tocar(T0 + k * MIN, f"a{k}", "alfa-app") for k in range(1, 16)]
+    lineas += [usuario(T0 + 20 * MIN, "ahora la bandeja de beta")]
+    lineas += [tocar(T0 + k * MIN, f"b{k}", "beta-app") for k in range(21, 36)]
+    lineas += [usuario(T0 + 40 * MIN, "y por último gamma")]
+    lineas += [tocar(T0 + k * MIN, f"c{k}", "gamma-app") for k in range(41, 56)]
+    return lineas
+
+
+def con_subagente(tmp_path, lineas, ms):
+    p = escribir(tmp_path, lineas)
+    sub = tmp_path / "s1" / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-a1.jsonl").write_text(json.dumps(asistente(ms, "sm1", model="claude-sonnet-5-5")))
+    return p
+
+
+def test_tres_proyectos_seguidos_sin_pausa_dan_tres_bloques(tmp_path):
+    lineas = tres_proyectos_seguidos()
+    lineas.insert(0, {"type": "ai-title", "aiTitle": "Agente enfocado en alfa"})
+    bs = bloques_de(con_subagente(tmp_path, lineas, T0 + 25 * MIN))
+    assert [b["bloque_id"] for b in bs] == ["s1#0", "s1#0.1", "s1#0.2"]
+    assert [list(b["repos"]) for b in bs] == [["alfa-app"], ["beta-app"], ["gamma-app"]]
+    # el título es lo que se pidió en ese tramo, no el de la sesión
+    assert [b["titulo"] for b in bs] == ["arreglá el login de alfa", "ahora la bandeja de beta", "y por último gamma"]
+    assert [b["primer_mensaje"] for b in bs] == [b["titulo"] for b in bs]
+    # contiguos: las horas del tramo no cambian, sólo se reparten
+    assert [(b["inicio"], b["fin"]) for b in bs] == [(T0, T0 + 20 * MIN), (T0 + 20 * MIN, T0 + 40 * MIN), (T0 + 40 * MIN, T0 + 55 * MIN)]
+    assert [len(b["subagentes"]) for b in bs] == [0, 1, 0]
+    assert bs[1]["repos"] == {"beta-app": 15}
+
+
+def test_partir_no_cambia_los_totales_de_la_sesion(tmp_path):
+    s = r.parsear_sesion(con_subagente(tmp_path, tres_proyectos_seguidos(), T0 + 25 * MIN))
+    bs = r.bloques(s)
+    tok = {k: 0 for k in r.CLAVES_TOKENS}
+    for m in s["mensajes"]:
+        tok = r.sumar(tok, m["tokens"])
+    tok = r.sumar(tok, s["subagentes"][0]["tokens"])
+    esperado = sum(r.costo(m["modelo"], m["tokens"]) for m in s["mensajes"]) + s["subagentes"][0]["costo"]
+    total = {k: sum(b["tokens"][k] for b in bs) for k in r.CLAVES_TOKENS}
+    assert total == tok
+    assert abs(sum(b["costo"] for b in bs) - esperado) < 0.001
+    assert sum(sum(b["modelos"].values()) for b in bs) == len(s["mensajes"])
+
+
+def test_un_toque_suelto_a_otro_repo_no_parte_el_bloque(tmp_path):
+    lineas = [{"type": "ai-title", "aiTitle": "Login de alfa"}, usuario(T0, "arreglá el login de alfa")]
+    lineas += [tocar(T0 + k * MIN, f"a{k}", "alfa-app") for k in range(1, 10)]
+    lineas += [tocar(T0 + 10 * MIN, "x1", "beta-app")]  # leyó algo de otro repo en el mismo pedido
+    lineas += [usuario(T0 + 12 * MIN, "fijate rápido cómo lo hace beta")]  # un pedido corto a otro repo
+    lineas += [tocar(T0 + 13 * MIN, "x2", "beta-app")]
+    lineas += [usuario(T0 + 15 * MIN, "listo, sigamos")]
+    lineas += [tocar(T0 + k * MIN, f"a{k}", "alfa-app") for k in range(16, 30)]
+    bs = bloques_de(escribir(tmp_path, lineas))
+    assert len(bs) == 1
+    assert bs[0]["bloque_id"] == "s1#0"
+    assert bs[0]["repos"] == {"alfa-app": 23, "beta-app": 2}
+    assert bs[0]["titulo"] == "Login de alfa"  # una sesión de un solo proyecto conserva su título
+
+
+def test_worktrees_del_mismo_repo_no_parten_el_bloque(tmp_path):
+    lineas = [usuario(T0, "deploy de trama")]
+    lineas += [tocar(T0 + k * MIN, f"a{k}", "trama-web") for k in range(1, 15)]
+    lineas += [usuario(T0 + 15 * MIN, "ahora en la copia del deploy")]
+    lineas += [tocar(T0 + k * MIN, f"b{k}", "trama-web-deploy-wt") for k in range(16, 30)]
+    assert len(bloques_de(escribir(tmp_path, lineas))) == 1
+
+
+def test_un_pedido_sin_repos_sigue_con_el_proyecto_de_antes(tmp_path):
+    lineas = tres_proyectos_seguidos()
+    lineas += [usuario(T0 + 56 * MIN, "y ahora?"), asistente(T0 + 70 * MIN, "z1")]
+    bs = bloques_de(escribir(tmp_path, lineas))
+    assert len(bs) == 3
+    assert bs[2]["fin"] == T0 + 70 * MIN
+
+
+def test_cada_pausa_parte_aparte_y_sus_ids_no_cambian(tmp_path):
+    """Los ids viejos (sesion#n, uno por pausa) siguen siendo los mismos: reenviar la sesión pisa el
+    bloque viejo con el primer tramo y suma los demás como sesion#n.k, sin duplicar horas."""
+    lineas = [usuario(T0 - 120 * MIN, "arranco"), tocar(T0 - 119 * MIN, "p1", "alfa-app")]
+    lineas += tres_proyectos_seguidos()
+    bs = bloques_de(escribir(tmp_path, lineas))
+    assert [b["bloque_id"] for b in bs] == ["s1#0", "s1#1", "s1#1.1", "s1#1.2"]
+    assert bs[0]["titulo"] == "arranco"
+
+
 def test_el_bloque_cumple_el_contrato(tmp_path):
     p = escribir(tmp_path, [usuario(T0, "x" * 900), asistente(T0 + 1000, "m1")])
     sub = tmp_path / "s1" / "subagents"
@@ -307,6 +406,20 @@ def test_la_segunda_corrida_no_reenvia_lo_que_no_cambio(tmp_path):
         f.write("\n" + json.dumps(usuario(T0 + 5000, "sigo")))
     assert correr(proyectos, estado, enviados)["bloques"] == 1
     assert [b["sesion"] for b in enviados[0][1]["bloques"]] == ["s1"]
+
+
+def test_un_cambio_en_como_se_parten_los_bloques_reenvia_todo_una_vez(tmp_path):
+    """Lo que se subió con la versión anterior (antes de partir por proyecto) se vuelve a mandar una
+    vez: el upsert por bloque_id pisa el bloque viejo y suma los tramos nuevos, sin duplicar."""
+    proyectos, estado = armar_home(tmp_path)
+    correr(proyectos, estado, [])
+    cache_p = estado / "cache.json"
+    viejo = {f: fi.split(":", 1)[1] for f, fi in json.loads(cache_p.read_text()).items()}
+    cache_p.write_text(json.dumps(viejo))  # como lo dejó el plugin anterior
+    enviados = []
+    assert correr(proyectos, estado, enviados)["bloques"] == 2
+    enviados.clear()
+    assert correr(proyectos, estado, enviados)["bloques"] == 0
 
 
 def test_si_el_envio_falla_se_reintenta_la_proxima(tmp_path):
