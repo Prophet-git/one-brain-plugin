@@ -18,6 +18,12 @@ Llamá `brain_semana`:
 
 Devuelve datos, no texto: `horas` (de reloj, lo paralelo cuenta una vez), `proyectos` (horas, costo y `pct_plan`), `dias`, `costo`, `tokens`, `modelos`, `subagentes`, `rutinas` (corridas automáticas: tienen costo pero no suman horas), `crecimiento` (las últimas 8 semanas por proyecto), `sin_asignar` y `estado`.
 
+`por_cliente` junta los proyectos por el cliente de su ficha, con el plan (`pct_ventana`), la semana (`horas`, `pct_horas`, `proyectos`), el mes calendario en hora de Argentina (`mes`, rango en `mes_rango`; para un mes cerrado, pedí `semana` con una fecha de ese mes) y lo pactado contra lo acumulado (`rendimiento`). Lo que no tiene cliente va como `Interno / sin cliente`. `reparto` es clientes contra interno, `plan_queda` dice cuánto plan queda, si es medido o estimado (`fuente`) y si llega a fin de semana, y `sin_horas_14_dias` son los clientes activos sin horas en 14 días (con `persona: "equipo"`, lo que nadie toca).
+
+`pct_ventana` es el número del plan por cliente: el % real del medidor en la ventana de 7 días abierta, repartido por costo a precio de API dentro de esa ventana. El total es medido y el reparto es estimado: la suma con Interno da `ventana_clientes.pct_total`, igual que `plan_queda`. Sólo existe para quien pregunta y para la semana en curso; si es null, decí lo que dice `ventana_clientes.motivo`, no calcules un %. El `pct_plan` de `proyectos` es otra cosa: ESTIMADO contra la semana, no lo sumes por cliente. `costo_api_referencia` es lo que costaría por API: no lo presentes como gastado. Lo que le cuesta de verdad a quien pregunta es `mes.parte_plan_usd`: pasá `plan_usd_mes` con lo que paga por mes y el server lo reparte por uso del plan en el mes. `sin_asignar` es para corregir asignaciones, no va en el mapa.
+
+Si un proyecto cae en interno y es de un cliente, se une con `brain_ficha_editar` (op `cliente`). Si el mismo cliente figura con dos nombres de tipo cliente, el repetido pasa a proyecto (`brain_entity_set_type`) y se le pone de cliente el nombre que queda. Si no está claro de quién es, preguntá: no lo adivines.
+
 ## 2. Corregir lo mal asignado (antes de reportar)
 
 Mirá `sin_asignar`. Cada entrada es tiempo que no cayó en ningún cliente:
@@ -58,7 +64,7 @@ Horas en formato `12 h 30 min`, costo en `US$` (es a precio de API, no lo que se
 
 Para "cuántas horas llevo con X", "cuánto me costó X en total" o "cuánto vale mi hora en X", llamá `brain_semana({ semana: "historico" })` (con `persona` como siempre). Es lo mismo que la tarjeta "Histórico por proyecto" del panel.
 
-Devuelve `total` y `proyectos` (por horas), cada uno con `horas`, `tokens` (entrada, salida y escritura de caché; `lectura_cache` va aparte), `costo` y `costo_por_hora` en US$ a precio de API, `desde` y `ultima_vez` (días de Argentina), y `pactado`: los precios de lo pactado en la ficha del proyecto, como texto libre. Con más de 13 proyectos, `otros` junta los que quedan desde el puesto 13.
+Devuelve `total`, `por_cliente`, `reparto` y `sin_horas_14_dias` (como en la semana, con la semana en cero) y `proyectos` (por horas), cada uno con `horas`, `tokens` (entrada, salida y escritura de caché; `lectura_cache` va aparte), `costo` y `costo_por_hora` en US$ a precio de API, `desde` y `ultima_vez` (días de Argentina), y `pactado`: los precios de lo pactado en la ficha del proyecto, como texto libre. Con más de 13 proyectos, `otros` junta los que quedan desde el puesto 13.
 
 - Citá `pactado` tal cual está; no lo conviertas a número ni lo sumes. Si viene vacío, decí que la ficha no tiene precio pactado.
 - `costo_por_hora` es null cuando no hay horas (sólo rutinas automáticas): decilo así, no lo calcules.
