@@ -300,6 +300,13 @@ ob_session_start() {
     [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat \"$(ob_state_dir)/token\")\" $URL/api/synthesis"
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
+    # Cuántas menciones te quedan sin hacer, en <estado>/pendientes, para la barra de estado. Sólo
+    # se escribe si el servidor manda el número: uno viejo, o una respuesta cortada, no lo pisa.
+    _obpend=$(ob_json_field pendientes "$(cat "$OB_TMP/mentions" 2>/dev/null)")
+    case "$_obpend" in
+      ''|*[!0-9]*) ;;
+      *) mkdir -p "$(ob_state_dir)" 2>/dev/null && printf '%s' "$_obpend" > "$(ob_state_dir)/pendientes" 2>/dev/null ;;
+    esac
     MATERIAL=$(ob_json_field material "$(cat "$OB_TMP/material" 2>/dev/null)")
     REVISION=$(ob_json_field revision "$(cat "$OB_TMP/revision" 2>/dev/null)")
 

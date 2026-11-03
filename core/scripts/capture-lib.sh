@@ -279,7 +279,7 @@ ob_json_field() {
     printf '%s' "$_obj" | python3 -c 'import json,sys
 try:
     v=json.load(sys.stdin).get(sys.argv[1],"")
-    sys.stdout.write(v if isinstance(v,str) else "")
+    sys.stdout.write(v if isinstance(v,str) else (str(v) if type(v) is int else ""))
 except Exception:
     pass' "$_obf" 2>/dev/null
     return
