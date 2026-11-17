@@ -47,7 +47,7 @@ El usuario está por soltar un proyecto y quiere que otra persona pueda seguirlo
 
 8. **Dejá la ficha armada** con `brain_ficha_editar "<proyecto>"`. Primero mirá qué tiene con `brain_ficha` para no duplicar:
    - `estado`: dónde está, en una o dos frases.
-   - Las tareas abiertas en `sigue`, y las trabadas en `bloqueado` con `bloqueado_en`.
+   - Las tareas abiertas que la persona te nombre en `sigue`, y las trabadas en `bloqueado` con `bloqueado_en`. Una tarea se crea sólo cuando una persona la pide: no inventes tareas a partir del repo o de las memorias.
    - Las salvedades: lo que el otro tiene que saber antes de tocar algo.
    - Lo pactado con el cliente, con su precio, si se habló. Queda sin confirmar hasta que lo confirme una persona en el panel.
    - Si la solución tiene varias piezas, el `diagrama`: personas y sistemas, de dónde a dónde viaja la información, con TODOS los servicios que usa el código, sin tope de cajas (revisá el repo: APIs externas, mails, analytics, crons), cada una `anda` o `falta`.
