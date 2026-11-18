@@ -19,6 +19,7 @@ Uso (lo lanza plugin/bin/onebrain-semana-push):
   python3 recolectar.py            sube lo que cambió y dice en una línea qué subió
   python3 recolectar.py --aviso    una línea si Semana dejó de andar (arranque de sesión), o nada
   python3 recolectar.py --estado   la línea del doctor: semana|ok|... o semana|aviso|...
+  python3 recolectar.py --seco     costo por modelo y por repo de todas las sesiones; no envía nada
 """
 from __future__ import annotations
 
@@ -48,17 +49,29 @@ TITULO_MAX = 80
 # para no rozar el tope de tamaño de body de Vercel (4,5 MB).
 LOTE = 200
 
-# USD por millón de tokens. Fuente: skill claude-api, tabla cacheada el 2026-09-25.
-# Escritura de cache: 1,25x la entrada (5 min) y 2x (1 h). Lectura: propia por modelo.
+# USD por millón de tokens, precio de API estándar (global, sin Batch). Fuente: página oficial de
+# precios, https://platform.claude.com/docs/en/about-claude/pricing, revisada el 2026-11-18.
+# Escritura de cache: 1,25x la entrada (5 min) y 2x (1 h). Lectura: propia por modelo (en Fable 5.x
+# y Opus/Sonnet 5.5 es 0,025x o 0,05x la entrada, no el 0,1x de siempre). Un modelo que no está acá
+# no vale $0 en silencio: se cuenta aparte (ver sin_precio). No sumar ids adivinados.
+# "rapido": el modo rápido (usage.speed == "fast"), sólo en los modelos que lo tienen. Los
+# multiplicadores de caché van encima del precio rápido (misma página, "Fast mode pricing").
 PRECIOS = {
-    "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_read": 0.20},
-    "claude-opus-5": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
-    "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
-    "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
-    "claude-sonnet-5-5": {"input": 2.00, "output": 10.00, "cache_read": 0.20},
-    "claude-sonnet-5": {"input": 2.00, "output": 10.00, "cache_read": 0.20},
+    "claude-fable-5-2": {"input": 8.00, "output": 40.00, "cache_read": 0.20, "rapido": {"input": 16.00, "output": 80.00}},
     "claude-fable-5-1": {"input": 10.00, "output": 50.00, "cache_read": 0.25},
     "claude-fable-5": {"input": 10.00, "output": 50.00, "cache_read": 1.00},
+    "claude-opus-5-5": {"input": 4.00, "output": 20.00, "cache_read": 0.20, "rapido": {"input": 8.00, "output": 40.00}},
+    "claude-opus-5": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "rapido": {"input": 10.00, "output": 50.00}},
+    "claude-opus-4-8": {"input": 5.00, "output": 25.00, "cache_read": 0.50, "rapido": {"input": 10.00, "output": 50.00}},
+    "claude-opus-4-7": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
+    "claude-opus-4-6": {"input": 5.00, "output": 25.00, "cache_read": 0.50},
+    "claude-sonnet-5-5": {"input": 2.00, "output": 10.00, "cache_read": 0.10},
+    "claude-sonnet-5": {"input": 2.00, "output": 10.00, "cache_read": 0.20},
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00, "cache_read": 0.30},
+    # Haiku 5.5 cobra por largo del prompt: un pedido con MÁS de 100.000 tokens de entrada (input +
+    # caché leída + caché escrita) paga el tramo alto entero, aunque parte sea caché.
+    "claude-haiku-5-5": {"input": 0.10, "output": 0.50, "cache_read": 0.01,
+                         "largo": {"desde": 100_000, "input": 0.50, "output": 2.50, "cache_read": 0.05}},
     "claude-haiku-4-5": {"input": 1.00, "output": 5.00, "cache_read": 0.10},
 }
 
@@ -122,8 +135,10 @@ def resolver_repo(nombre, sub=None, code=None):
     return resultado
 
 
-def costo(modelo, tok):
-    p = PRECIOS.get(normalizar_modelo(modelo))
+def costo(modelo, tok, rapido=False):
+    """USD de UN pedido (o de pedidos del mismo tramo): el tramo por largo sale de estos tokens."""
+    entrada = sum(tok.get(k, 0) for k in CLAVES_TOKENS if k != "output")
+    p = precio(modelo, rapido, entrada)
     if not p:
         return 0
     return (
@@ -133,6 +148,77 @@ def costo(modelo, tok):
         + tok.get("cache_write_5m", 0) * p["input"] * 1.25
         + tok.get("cache_write_1h", 0) * p["input"] * 2
     ) / 1_000_000
+
+
+def precio(modelo, rapido=False, entrada=0):
+    """Los precios por millón de UN pedido, o None si no hay. `entrada` son sus tokens de entrada
+    (input + caché): elige el tramo de los modelos que cobran por largo. En modo rápido, la entrada
+    y la salida rápidas y la caché escalada por el mismo factor que la entrada."""
+    p = PRECIOS.get(normalizar_modelo(modelo))
+    if p and p.get("largo") and entrada > p["largo"]["desde"]:
+        p = p["largo"]
+    if not p or not rapido:
+        return p
+    r = p.get("rapido")
+    if not r:
+        return None
+    return {"input": r["input"], "output": r["output"], "cache_read": p["cache_read"] * r["input"] / p["input"]}
+
+
+def clave_sin_precio(m):
+    """El nombre con que un mensaje sin precio se cuenta aparte, o None si tiene precio."""
+    if precio(m["modelo"], m.get("rapido", False)):
+        return None
+    return m["modelo"] + (" (rápido)" if m.get("rapido") else "")
+
+
+def costo_de(m):
+    return costo(m["modelo"], m["tokens"], m.get("rapido", False))
+
+
+def total_tokens(tok):
+    return sum(tok.get(k, 0) for k in CLAVES_TOKENS)
+
+
+def sin_precio(s):
+    """{modelo: tokens} de los mensajes de la sesión (y sus subagentes) cuyo modelo no está en
+    PRECIOS. costo() les da 0; esto es lo que hace que un modelo nuevo se note en vez de abaratar."""
+    faltan = Counter()
+    for m in s["mensajes"]:
+        if clave_sin_precio(m):
+            faltan[clave_sin_precio(m)] += total_tokens(m["tokens"])
+    for x in s["subagentes"]:
+        faltan.update(x.get("_sin_precio") or {})
+    return dict(faltan)
+
+
+def desglosar(mensajes):
+    """{modelo: {respuestas, tokens, costo}} de una lista de mensajes, cada uno con su precio."""
+    d = {}
+    for m in mensajes:
+        x = d.setdefault(m["modelo"], {"respuestas": 0, "tokens": {k: 0 for k in CLAVES_TOKENS}, "costo": 0.0})
+        x["respuestas"] += 1
+        x["tokens"] = sumar(x["tokens"], m["tokens"])
+        x["costo"] += costo_de(m)
+    return d
+
+
+def juntar_desgloses(*ds):
+    salida = {}
+    for d in ds:
+        for modelo, x in d.items():
+            y = salida.setdefault(modelo, {"respuestas": 0, "tokens": {k: 0 for k in CLAVES_TOKENS}, "costo": 0.0})
+            y["respuestas"] += x["respuestas"]
+            y["tokens"] = sumar(y["tokens"], x["tokens"])
+            y["costo"] += x["costo"]
+    return salida
+
+
+def desglose(s):
+    """Tokens y USD por modelo de la sesión, subagentes incluidos. Todavía no viaja al servidor:
+    `modelos` del bloque es un conteo de respuestas (el panel lo lee así) y guardar tokens y costo
+    por modelo pide una columna nueva en semana_bloques. Hoy lo usa `--seco`."""
+    return juntar_desgloses(desglosar(s["mensajes"]), *(x.get("_desglose") or {} for x in s["subagentes"]))
 
 
 def tokens_de(usage):
@@ -231,11 +317,13 @@ def leer_mensajes(path):
                 previo["entidades"].update(entidades)
                 if m.get("usage"):
                     previo["tokens"] = tokens_de(m["usage"])
+                    previo["rapido"] = m["usage"].get("speed") == "fast"
                 continue
             por_id[mid] = {
                 "ts": ms,
                 "modelo": normalizar_modelo(m.get("model")),
                 "tokens": tokens_de(m.get("usage") or {}),
+                "rapido": (m.get("usage") or {}).get("speed") == "fast",
                 "repos": repos,
                 "entidades": entidades,
             }
@@ -262,12 +350,15 @@ def parsear_subagentes(path):
         tok = {k: 0 for k in CLAVES_TOKENS}
         modelos = Counter()
         repos_sub = Counter()
+        faltan = Counter()
         c = 0.0
         for m in mensajes:
             repos_sub.update(m["repos"])
+            if clave_sin_precio(m):
+                faltan[clave_sin_precio(m)] += total_tokens(m["tokens"])
             tok = sumar(tok, m["tokens"])
             modelos[m["modelo"]] += 1
-            c += costo(m["modelo"], m["tokens"])
+            c += costo_de(m)
         subs.append({
             "tipo": meta.get("agentType") or "general-purpose",
             "descripcion": meta.get("description") or "",
@@ -278,6 +369,8 @@ def parsear_subagentes(path):
             "costo": round(c, 6),
             # no viaja: se suma a los repos del bloque, que es donde el servidor lo lee
             "_repos": repos_sub,
+            "_sin_precio": dict(faltan),
+            "_desglose": desglosar(mensajes),
         })
     return subs
 
@@ -403,7 +496,7 @@ def bloques(s):
                 entidades.update(m["entidades"])
                 tok = sumar(tok, m["tokens"])
                 modelos[m["modelo"]] += 1
-                c += costo(m["modelo"], m["tokens"])
+                c += costo_de(m)
             for x in subs:
                 tok = sumar(tok, x["tokens"])
                 c += x["costo"]
@@ -433,7 +526,7 @@ def bloques(s):
                 "repos": dict(repos),
                 "entidades": dict(entidades),
                 "cwd_repo": cwd,
-                "subagentes": [{k2: v for k2, v in x.items() if k2 != "_repos"} for x in subs],
+                "subagentes": [{k2: v for k2, v in x.items() if not k2.startswith("_")} for x in subs],
                 "commits": [],
             })
     return salida
@@ -496,8 +589,9 @@ def escribir_json(p, datos):
 
 
 # Va en la firma de cada archivo: subirla reenvía todo una vez cuando cambia cómo se arman los
-# bloques. v2 (29-oct-2026): los tramos por proyecto de por_proyecto.
-VERSION_BLOQUES = "v2"
+# bloques. v2 (29-oct-2026): los tramos por proyecto de por_proyecto. v3 (18-nov-2026): precios al día
+# por modelo (Sonnet 5.5, Fable 5.2, Haiku 5.5 por tramo, modo rápido): el costo de lo ya subido cambia.
+VERSION_BLOQUES = "v3"
 
 
 def firma(f):
@@ -535,14 +629,17 @@ def recolectar(proyectos, estado, enviar, plan=None, email=None):
     email = email_git() if email is None else email
 
     pendientes = []  # (archivo, firma, bloques)
+    faltan = Counter()  # tokens de modelos sin precio en lo que sube esta corrida
     for f in sorted(proyectos.glob("*/*.jsonl")):
         try:
             fi = firma(f)
             if cache.get(str(f)) == fi:
                 continue
-            bs = bloques(parsear_sesion(f))
+            s = parsear_sesion(f)
+            bs = bloques(s)
         except OSError:
             continue  # Claude Code lo borró o lo está rotando: va en la próxima
+        faltan.update(sin_precio(s))
         for b in bs:
             b["commits"] = commits_de_repos(b["repos"], b["inicio"], b["fin"], email)
         pendientes.append((str(f), fi, bs))
@@ -607,7 +704,19 @@ def recolectar(proyectos, estado, enviar, plan=None, email=None):
     ultimo.pop("pausa", None)  # llegó al server: si había una pausa por 401/404/403, se terminó
     ultimo.update({"ts": ahora, "bloques": len(todos), "plan": len(muestras)})
     escribir_json(ultimo_p, ultimo)
-    return {"bloques": len(todos), "plan": len(muestras), "rechazados": rechazados}
+    return {"bloques": len(todos), "plan": len(muestras), "rechazados": rechazados, "sin_precio": dict(faltan)}
+
+
+def linea_resumen(res):
+    """La línea que imprime la corrida. Si algún modelo no tiene precio lo nombra: su costo quedó
+    en 0 y hay que sumarlo a PRECIOS."""
+    linea = f"semana: subí {res['bloques']} bloques y {res['plan']} muestras del plan"
+    if res.get("rechazados"):
+        linea += f"; el servidor rechazó {res['rechazados']} ({res.get('motivo') or 'sin motivo'}), se reintentan en la próxima corrida"
+    if res.get("sin_precio"):
+        lista = ", ".join(f"{m} ({n} tokens)" for m, n in sorted(res["sin_precio"].items()))
+        linea += f"; sin precio: {lista}, su costo quedó en 0 hasta sumarlos a PRECIOS"
+    return linea
 
 
 # ── Pausas: un 401, 404 o 403 no se reintenta cada 10 minutos ───────────────────────────────
@@ -769,6 +878,39 @@ def enviar_con_curl(url, token, estado):
     return enviar
 
 
+def seco(proyectos, top=3):
+    """Lee todas las sesiones y cuenta, sin enviar nada ni tocar el estado: el costo a precio de
+    API por modelo y por repo. El repo de un bloque es el que más tocó (si no, el de su cwd): se
+    parece al proyecto que resuelve el servidor, pero no es lo mismo."""
+    por_repo, desgloses, faltan = Counter(), [], Counter()
+    total = 0.0
+    for f in sorted(proyectos.glob("*/*.jsonl")):
+        try:
+            s = parsear_sesion(f)
+        except OSError:
+            continue
+        desgloses.append(desglose(s))
+        faltan.update(sin_precio(s))
+        for b in bloques(s):
+            repo = max(b["repos"], key=b["repos"].get) if b["repos"] else (b["cwd_repo"] or "(sin repo)")
+            por_repo[repo] += b["costo"]
+            total += b["costo"]
+    d = juntar_desgloses(*desgloses)
+    lineas = [f"total: USD {total:,.2f}", "por modelo (modelo · respuestas · tokens · USD):"]
+    for modelo, x in sorted(d.items(), key=lambda kv: -kv[1]["costo"]):
+        lineas.append(f"  {modelo} · {x['respuestas']} · {total_tokens(x['tokens']):,} · {x['costo']:,.2f}")
+    lineas.append(f"top {top} repos:")
+    lineas += [f"  {repo} · {c:,.2f}" for repo, c in por_repo.most_common(top)]
+    # Un subagente que arranca en una pausa (más de 30 min después del último tramo) no cae en
+    # ningún bloque: su costo está en el desglose pero no en Semana. Se dice en vez de esconderlo.
+    fuera = sum(x["costo"] for x in d.values()) - total
+    if fuera > 0.005:
+        lineas.append(f"fuera de todo bloque (subagentes en pausas): USD {fuera:,.2f}")
+    if faltan:
+        lineas.append("sin precio: " + ", ".join(f"{m} ({n:,} tokens)" for m, n in sorted(faltan.items())))
+    return "\n".join(lineas)
+
+
 def main(args):
     claude = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
     estado = Path(os.environ.get("ONE_BRAIN_SEMANA_DIR") or HOME / ".onebrain" / "semana")
@@ -781,6 +923,9 @@ def main(args):
         return 0
     if "--estado" in args:
         print(estado_doctor(claude / "projects", estado))
+        return 0
+    if "--seco" in args:
+        print(seco(claude / "projects"))
         return 0
     url = os.environ.get("ONE_BRAIN_URL") or "https://onebrain.prophet.lat"
     token_p = os.environ.get("ONE_BRAIN_TOKEN_FILE")
@@ -810,11 +955,9 @@ def main(args):
             if e.codigo in ("401", "403", "404"):
                 anotar_pausa(estado, e.codigo, token)
             raise
-    linea = f"semana: subí {res['bloques']} bloques y {res['plan']} muestras del plan"
     if res["rechazados"]:
-        motivo = (leer_json(estado / "rechazos.json", {}) or {}).get("motivo") or "sin motivo"
-        linea += f"; el servidor rechazó {res['rechazados']} ({motivo}), se reintentan en la próxima corrida"
-    print(linea)
+        res["motivo"] = (leer_json(estado / "rechazos.json", {}) or {}).get("motivo")
+    print(linea_resumen(res))
     return 0
 
 

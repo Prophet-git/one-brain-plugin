@@ -152,6 +152,36 @@ def test_costo_opus_5_5_con_precios_oficiales():
     assert r.costo("claude-opus-5-5[1m]", tok) == 4 + 20 + 0.20 + 5 + 8
 
 
+UN_M = {"input": 1_000_000, "output": 1_000_000, "cache_read": 1_000_000,
+        "cache_write_5m": 1_000_000, "cache_write_1h": 1_000_000}
+
+
+def test_tabla_de_precios_al_dia_con_la_pagina_oficial():
+    """Página oficial del 2026-11-18: input, output, lectura de caché; escritura 1,25x y 2x."""
+    def esperado(i, o, cr):
+        return round(i + o + cr + i * 1.25 + i * 2, 6)
+    casos = {
+        "claude-fable-5-2": (8, 40, 0.20),
+        "claude-fable-5-1": (10, 50, 0.25),
+        "claude-fable-5": (10, 50, 1.00),
+        "claude-opus-5-5": (4, 20, 0.20),
+        "claude-opus-5": (5, 25, 0.50),
+        "claude-opus-4-8": (5, 25, 0.50),
+        "claude-opus-4-7": (5, 25, 0.50),
+        "claude-opus-4-6": (5, 25, 0.50),
+        "claude-sonnet-5-5": (2, 10, 0.10),
+        "claude-sonnet-5": (2, 10, 0.20),
+        "claude-sonnet-4-6": (3, 15, 0.30),
+        "claude-haiku-4-5": (1, 5, 0.10),
+    }
+    for modelo, (i, o, cr) in casos.items():
+        assert round(r.costo(modelo, UN_M), 6) == esperado(i, o, cr), modelo
+
+
+def test_sonnet_5_5_lee_cache_a_0_10():
+    assert r.costo("claude-sonnet-5-5", {"cache_read": 1_000_000}) == 0.10
+
+
 def test_modelo_desconocido_no_inventa_precio():
     assert r.costo("<synthetic>", {"input": 10, "output": 10}) == 0
 
@@ -481,7 +511,7 @@ def test_un_lote_rechazado_no_se_marca_y_queda_anotado_con_el_motivo(tmp_path):
     # La próxima corrida reintenta sólo lo rechazado; si entra, el rechazo queda resuelto.
     enviados.clear()
     res = r.recolectar(proyectos=proyectos.parent, estado=estado, enviar=lambda ruta, c: enviados.append(c), email="")
-    assert res == {"bloques": 1, "plan": 0, "rechazados": 0}
+    assert res == {"bloques": 1, "plan": 0, "rechazados": 0, "sin_precio": {}}
     assert not (estado / "rechazos.json").exists()
     assert json.loads((estado / "ultimo-envio.json").read_text())["ok_ts"] > 0
 
@@ -628,3 +658,123 @@ def test_con_semana_apagada_no_lee_los_logs(tmp_path, monkeypatch):
     assert leidos == []
     seguir, motivo = r.debe_correr(estado, "ob_prueba")
     assert seguir is False and "403" in motivo
+
+
+# ── Un modelo sin precio no vale $0 en silencio ────────────────────────────────────────────────
+
+def test_modelo_sin_precio_se_cuenta_aparte_tambien_en_subagentes(tmp_path):
+    p = escribir(tmp_path, [usuario(T0, "x"), asistente(T0 + 1000, "m1", model="claude-nuevo-9"),
+                            asistente(T0 + 2000, "m2")])
+    sub = tmp_path / "s1" / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-a1.jsonl").write_text(json.dumps(asistente(T0 + 3000, "sm1", model="claude-nuevo-9")))
+    s = r.parsear_sesion(p)
+    # 10 + 100 + 1000 tokens por mensaje (el usage por defecto de asistente), dos mensajes
+    assert r.sin_precio(s) == {"claude-nuevo-9": 2220}
+    # lo interno no viaja al servidor
+    assert set(r.bloques(s)[0]["subagentes"][0]) == {"tipo", "descripcion", "inicio", "fin", "modelos", "tokens", "costo"}
+
+
+def test_la_corrida_dice_que_modelos_quedaron_sin_precio(tmp_path):
+    proyectos, estado = armar_home(tmp_path)
+    escribir(proyectos, [usuario(T0, "y"), asistente(T0 + 1000, "m9", model="claude-nuevo-9")], "s3.jsonl")
+    res = correr(proyectos, estado, [])
+    assert res["sin_precio"] == {"claude-nuevo-9": 1110}
+    assert "sin precio: claude-nuevo-9 (1110 tokens)" in r.linea_resumen(res)
+    assert "sin precio" not in r.linea_resumen({**res, "sin_precio": {}})
+
+
+# ── Modo rápido: usage.speed == "fast" cobra el precio rápido ──────────────────────────────────
+
+def test_modo_rapido_cobra_el_doble_y_la_cache_escala_encima():
+    # Opus 5.5 rápido: 8 / 40; la lectura y escritura de caché se multiplican sobre esa entrada
+    assert round(r.costo("claude-opus-5-5", UN_M, rapido=True), 6) == 8 + 40 + 0.40 + 10 + 16
+    assert round(r.costo("claude-fable-5-2", UN_M, rapido=True), 6) == 16 + 80 + 0.40 + 20 + 32
+    assert round(r.costo("claude-opus-5", UN_M, rapido=True), 6) == 10 + 50 + 1 + 12.5 + 20
+    assert round(r.costo("claude-opus-4-8", UN_M, rapido=True), 6) == 10 + 50 + 1 + 12.5 + 20
+    assert r.costo("claude-opus-5-5", UN_M) == 4 + 20 + 0.20 + 5 + 8  # estándar sin cambios
+
+
+def test_el_mensaje_rapido_se_lee_del_usage_y_se_cobra_rapido(tmp_path):
+    usage = {"input_tokens": 1_000_000, "output_tokens": 0, "cache_read_input_tokens": 0,
+             "cache_creation_input_tokens": 0, "speed": "fast"}
+    p = escribir(tmp_path, [usuario(T0, "x"), asistente(T0 + 1000, "m1", usage=usage)])
+    s = r.parsear_sesion(p)
+    assert s["mensajes"][0]["rapido"] is True
+    assert bloques_de(p)[0]["costo"] == 8
+
+
+def test_rapido_en_un_modelo_sin_precio_rapido_no_se_cobra_estandar_en_silencio(tmp_path):
+    usage = {"input_tokens": 100, "output_tokens": 0, "cache_read_input_tokens": 0,
+             "cache_creation_input_tokens": 0, "speed": "fast"}
+    p = escribir(tmp_path, [usuario(T0, "x"), asistente(T0 + 1000, "m1", model="claude-haiku-4-5", usage=usage)])
+    s = r.parsear_sesion(p)
+    assert r.costo("claude-haiku-4-5", {"input": 100}, rapido=True) == 0
+    assert r.sin_precio(s) == {"claude-haiku-4-5 (rápido)": 100}
+
+
+# ── Haiku 5.5: el precio depende de la entrada de ESE pedido (input + caché leída + escrita) ──
+
+def test_haiku_5_5_hasta_100k_de_entrada_paga_el_tramo_bajo():
+    # exactamente 100.000 de entrada: tramo bajo (0,10 / 0,50 / 0,01)
+    tok = {"input": 40_000, "cache_read": 50_000, "cache_write_5m": 6_000, "cache_write_1h": 4_000, "output": 1_000_000}
+    esperado = (40_000 * 0.10 + 50_000 * 0.01 + 6_000 * 0.125 + 4_000 * 0.20 + 1_000_000 * 0.50) / 1_000_000
+    assert round(r.costo("claude-haiku-5-5", tok), 9) == round(esperado, 9)
+
+
+def test_haiku_5_5_arriba_de_100k_paga_el_tramo_alto_entero():
+    # 100.001 de entrada: todo el pedido al tramo alto (0,50 / 2,50 / 0,05), aunque sea caché
+    tok = {"input": 1, "cache_read": 100_000, "output": 1_000_000}
+    esperado = (1 * 0.50 + 100_000 * 0.05 + 1_000_000 * 2.50) / 1_000_000
+    assert round(r.costo("claude-haiku-5-5", tok), 9) == round(esperado, 9)
+
+
+def test_haiku_5_5_cada_pedido_se_cobra_con_su_tramo(tmp_path):
+    chico = {"input_tokens": 1_000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+    grande = {"input_tokens": 200_000, "output_tokens": 0, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0}
+    p = escribir(tmp_path, [usuario(T0, "x"), asistente(T0 + 1000, "m1", model="claude-haiku-5-5", usage=chico),
+                            asistente(T0 + 2000, "m2", model="claude-haiku-5-5", usage=grande)])
+    # sumados darían 201.000 (todo alto); por pedido, el chico va al tramo bajo
+    assert bloques_de(p)[0]["costo"] == round((1_000 * 0.10 + 200_000 * 0.50) / 1_000_000, 4)
+
+
+# ── Desglose por modelo: tokens y USD de cada modelo, subagentes incluidos ─────────────────────
+
+def test_desglose_por_modelo_suma_lo_mismo_que_los_bloques(tmp_path):
+    p = escribir(tmp_path, [usuario(T0, "x"), asistente(T0 + 1000, "m1"),
+                            asistente(T0 + 2000, "m2", model="claude-sonnet-5-5"),
+                            usuario(T0 + 2 * 3600_000, "otra vez"), asistente(T0 + 2 * 3600_000 + 1000, "m3")])
+    sub = tmp_path / "s1" / "subagents"
+    sub.mkdir(parents=True)
+    (sub / "agent-a1.jsonl").write_text(json.dumps(asistente(T0 + 3000, "sm1", model="claude-fable-5-2")))
+    s = r.parsear_sesion(p)
+    d = r.desglose(s)
+    assert set(d) == {"claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-2"}
+    assert d["claude-opus-5-5"]["respuestas"] == 2 and d["claude-opus-5-5"]["tokens"]["output"] == 200
+    assert d["claude-fable-5-2"]["costo"] == r.costo("claude-fable-5-2", s["subagentes"][0]["tokens"])
+    bs = r.bloques(s)
+    assert abs(sum(x["costo"] for x in d.values()) - sum(b["costo"] for b in bs)) < 0.0001
+    assert sum(r.total_tokens(x["tokens"]) for x in d.values()) == sum(r.total_tokens(b["tokens"]) for b in bs)
+    assert set(bs[0]) == CONTRATO  # el desglose no viaja hasta que el servidor tenga dónde guardarlo
+
+
+def test_seco_cuenta_sin_enviar_ni_tocar_el_estado(tmp_path, monkeypatch):
+    proyectos, estado = armar_home(tmp_path)
+    monkeypatch.setattr(r.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("no envía")))
+    salida = r.seco(proyectos.parent)
+    assert salida.startswith("total: USD ")
+    assert "claude-opus-5-5 · 2 · 2,220 ·" in salida
+    assert not estado.exists()
+
+
+def test_seco_dice_el_costo_de_subagentes_que_no_caen_en_ningun_bloque(tmp_path):
+    proyectos = tmp_path / "projects" / "p"
+    proyectos.mkdir(parents=True)
+    escribir(proyectos, [usuario(T0, "x"), asistente(T0 + 1000, "m1"),
+                         usuario(T0 + 3 * 3600_000, "y"), asistente(T0 + 3 * 3600_000 + 1000, "m2")])
+    sub = proyectos / "s1" / "subagents"
+    sub.mkdir(parents=True)
+    # arranca 1 h después del primer tramo y antes del segundo: hoy no cae en ningún bloque
+    (sub / "agent-a1.jsonl").write_text(json.dumps(asistente(T0 + 3600_000, "sm1", model="claude-fable-5-2",
+                                                               usage={"input_tokens": 1_000_000, "output_tokens": 0})))
+    assert "fuera de todo bloque (subagentes en pausas): USD 8.00" in r.seco(proyectos.parent)
