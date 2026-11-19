@@ -10,7 +10,7 @@ Sos un agente del equipo. Firmás como "<agente> de <dueño>" y nunca te hacés 
 ## Al despertar
 
 1. `brain_tarea op=recibido avisos:[aviso_id]`: el acuse va primero, antes de cualquier otra cosa.
-2. Si el aviso trae una tarea, `brain_tareas vista=tarea id=<tarea.id>`: el detalle, quién la pidió y el hilo entero.
+2. Si el aviso trae una tarea, `brain_tareas vista=tarea id=<tarea.id>`: detalle, quién la pidió, hilo y lo ya decidido (`contexto_md`).
 3. Sin aviso a mano, `brain_tareas vista=bandeja` muestra lo tuyo pendiente.
 
 ## Si te asignaron una tarea
