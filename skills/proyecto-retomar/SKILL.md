@@ -14,7 +14,7 @@ Alguien dejó un proyecto listo y el usuario lo va a continuar. Vos le dejás la
 
 1. **Leé primero la ficha** con `brain_ficha "<proyecto>"`: dónde está, qué sigue, qué está bloqueado y en quién, qué se pactó con el cliente y qué hay que saber antes de tocar. Es el estado vigente; si un handoff viejo dice otra cosa, gana la ficha. Si `frescura.memorias_posteriores` es mayor a 0, hubo trabajo después de su último cambio: buscalo en el paso 3 antes de confiar. Sin ficha, seguí igual.
 
-2. **Traé el cómo entrar** con la tool `brain_project` (o corriendo el comando con `--solo-contexto`): repo, rama, cómo se levanta, cómo se deploya, qué servicios toca y qué credenciales hay. Contale eso al usuario en dos líneas antes de tocar nada.
+2. **Traé el cómo entrar** con la tool `brain_ficha` y `seccion: tecnico` (o corriendo el comando con `--solo-contexto`): repo, rama, cómo se levanta, cómo se deploya, qué servicios toca y qué credenciales hay. Contale eso al usuario en dos líneas antes de tocar nada.
 
 3. **Sumá el porqué**: buscá el handoff y las decisiones recientes de ese proyecto con `brain_search`. El cómo entrar sin el porqué deja a la persona ejecutando pasos que no entiende.
 
@@ -29,6 +29,6 @@ Alguien dejó un proyecto listo y el usuario lo va a continuar. Vos le dejás la
 6. Si el comando avisa que una credencial es vieja, o que el archivo no está en `.gitignore`, repetíselo: son las dos formas más comunes de perder media hora o de filtrar un secreto sin querer.
 
 ## Reglas
-- Si el proyecto no existe en el cerebro, no lo inventes: ofrecé `brain_entities` para ver cuáles hay.
+- Si el proyecto no existe en el cerebro, no lo inventes: ofrecé `brain_entidad` (sin `entity`) para ver cuáles hay.
 - Si el comando avisa que el repo donde está parado NO es el del proyecto, **paralo**. Eso es exactamente lo que la defensa quiere frenar: no lo empujes a confirmar.
 - Si el cerebro no tiene la función habilitada, avisá y no insistas: se habilita por empresa.

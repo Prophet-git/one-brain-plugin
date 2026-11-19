@@ -41,7 +41,7 @@ El usuario está por soltar un proyecto y quiere que otra persona pueda seguirlo
 
    Y en el mismo mensaje pegale el comando en un bloque de código, listo para copiar, por si prefiere hacerlo a mano o la ventana no se abrió. Decile textual qué le va a preguntar (`¿Subo esto al cerebro?`) y qué tiene que contestar (`s`). Si no estás en macOS, no inventes el equivalente: dale el bloque para copiar y listo.
 
-6. **Verificá vos que haya entrado**, no le preguntes si funcionó: `brain_project "<proyecto>"` tiene que devolver el perfil cargado y no `profile: null`.
+6. **Verificá vos que haya entrado**, no le preguntes si funcionó: `brain_ficha` con `project: "<proyecto>"` y `seccion: tecnico` tiene que devolver el perfil cargado (repo, deploy) y no vacío.
 
 7. **No intentes leer vos los archivos de credenciales ni pegarlos en el chat.** El comando los manda cifrados del disco al cerebro sin que su valor pase por la conversación. Si lo hacés a mano, el secreto queda escrito en el transcript, en los logs y en el historial — que es justo lo que este comando existe para evitar.
 

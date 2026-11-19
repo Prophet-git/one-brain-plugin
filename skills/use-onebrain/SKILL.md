@@ -5,7 +5,7 @@ description: Usá One Brain (la memoria colectiva de la empresa) durante todo el
 
 # Usar One Brain
 
-One Brain es la memoria colectiva de la empresa, accesible por tools MCP. Las de todos los días: `brain_context`, `brain_search`, `brain_get`, `brain_save` y `brain_mention`. Además: `brain_entity`, `brain_entities`, `brain_entity_set_type`, `brain_timeline`, `brain_pulse`, `brain_semana`, `brain_semana_asignar`, `brain_project`, `brain_ficha`, `brain_ficha_editar`, `brain_claves`, `brain_material`, `brain_reuniones`, `brain_verify`, `brain_cierre` y `brain_conflicts`. Qué hace cada una para la persona está en la pestaña Claude del panel. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
+One Brain es la memoria colectiva de la empresa, accesible por tools MCP. Las de todos los días: `brain_context`, `brain_search`, `brain_get`, `brain_save` y `brain_aviso`. Además: `brain_memoria`, `brain_entidad`, `brain_entidad_editar`, `brain_equipo`, `brain_tareas`, `brain_tarea`, `brain_semana`, `brain_ficha`, `brain_ficha_editar`, `brain_claves`, `brain_material`, `brain_reuniones`, `brain_verify`, `brain_cierre`, `brain_conflicts` y `brain_constitucion` (sólo admins). Los nombres viejos (`brain_mention`, `brain_entity`, `brain_entities`, `brain_entity_set_type`, `brain_timeline`, `brain_pulse`, `brain_semana_asignar`, `brain_project`, `brain_cerrar_handoffs`) siguen andando como alias durante una versión. Qué hace cada una para la persona está en la pestaña Claude del panel. Es la fuente de verdad compartida del equipo. Esta skill sirve para CUALQUIER empresa: el negocio concreto vive en los datos, no acá.
 
 ## Cómo resolver cada tipo de pregunta (ruteo)
 
@@ -15,26 +15,26 @@ Antes de contestar, identificá qué tipo de pregunta es y usá el plan correspo
 |---|---|
 | "¿en qué estamos?", puesta al día, o arrancás una tarea | `brain_context` (la tarea en una frase + las entidades que sepas) |
 | un dato puntual, "¿qué es X?", "¿qué se decidió sobre Y?" | `brain_search` con el término |
-| todo sobre un cliente / proyecto / persona / tema | `brain_entity` (acepta nombre **o alias**) |
-| "¿en qué está X?", "¿qué falta de X?" (un proyecto) | `brain_ficha` primero; si no tiene ficha, `brain_entity` |
-| "¿qué clientes/personas/temas hay?", "listá los proyectos" | `brain_entities` (filtra por `type` o `search`) |
+| todo sobre un cliente / proyecto / persona / tema | `brain_entidad` con `entity` (acepta nombre **o alias**) |
+| "¿en qué está X?", "¿qué falta de X?" (un proyecto) | `brain_ficha` primero; si no tiene ficha, `brain_entidad` con `entity` |
+| "¿qué clientes/personas/temas hay?", "listá los proyectos" | `brain_entidad` sin `entity` (filtra por `type` o `search`) |
 | "¿qué hice esta semana?", horas por proyecto, reporte semanal | `brain_semana` |
 | qué pasó en un período en la memoria ("qué se decidió en marzo") | `brain_search` con `since`/`until` (ver Fechas relativas) |
-| en qué anduvo el equipo, "¿qué me perdí?" | `brain_pulse` |
-| cómo cambió una decisión, "¿por qué terminamos así?" | `brain_timeline` |
-| retomar un proyecto de otro (repo, deploy) | `brain_project` (o la skill `proyecto-retomar`) |
+| en qué anduvo el equipo, "¿qué me perdí?" | `brain_search` sin `query` y con `since` (trae `resumen`) |
+| cómo cambió una decisión, "¿por qué terminamos así?" | `brain_get` con `historia: true`, y `brain_search` con `vigentes: false` para las excepciones guardadas aparte |
+| retomar un proyecto de otro (repo, deploy) | `brain_ficha` con `seccion: tecnico` (o la skill `proyecto-retomar`) |
 | "¿tenemos la clave de X?" | `brain_claves` (nombres, nunca valores) |
 | traer reuniones de Granola | `brain_reuniones` (o la skill `reuniones`) |
 | memorias que se contradicen, ordenar el cerebro | `brain_conflicts` |
 | qué hizo una persona ("¿qué tocó Fran?") | `brain_search` con `author` |
 | listar/filtrar sin texto ("todas las decisiones de X") | `brain_search` **sin `query`**, con filtros (`type`, `entity`, `author`, `since`/`until`) |
-| cómo se conecta X con Y | `brain_entity` de X con `connect_to: Y` → `path` (directo o puentes a 2 saltos con evidencia) |
-| qué rodea a X / qué está fuertemente conectado con X | `brain_entity` de X → `neighbors` (con peso y tipo) |
+| cómo se conecta X con Y | `brain_entidad` de X con `connect_to: Y` → `path` (directo o puentes a 2 saltos con evidencia) |
+| qué rodea a X / qué está fuertemente conectado con X | `brain_entidad` de X → `neighbors` (con peso y tipo) |
 | qué toca a X **y** a Y a la vez (intersección) | `brain_search` con `entities: [X, Y]` (AND); agregá `type`/fechas para acotar |
-| "¿cuántos…?", "listá todos…", un total | traé con `brain_search`/`brain_entity` y **contá vos sobre lo que trajiste**, aclarando que es sobre lo cargado |
+| "¿cuántos…?", "listá todos…", un total | traé con `brain_search`/`brain_entidad` y **contá vos sobre lo que trajiste**, aclarando que es sobre lo cargado |
 | "¿qué falta / qué NO pasó?" | respondé solo si tenés el universo completo cargado; si no, decilo |
 | pregunta de varios saltos | descomponé en sub-preguntas y encadená varias llamadas |
-| **"mencioná a X", "avisale a X", "pedile a X que…", "notificá a X", "que lo vea X"** | **`brain_mention`** (`to`: nombre/email, `body`: qué tiene que ver/hacer, `entry_id`: la nota si acabás de guardarla) → le deja un PENDIENTE que le llega en su panel y su terminal |
+| **"mencioná a X", "avisale a X", "pedile a X que…", "notificá a X", "que lo vea X"** | **`brain_aviso` con `op: mencionar`** (`to`: nombre/email, `body`: qué tiene que ver/hacer, `entry_id`: la nota si acabás de guardarla) → le deja un PENDIENTE que le llega en su panel y su terminal |
 
 ### Fechas relativas
 Cuando pregunten con referencias relativas ("esta semana", "el mes pasado", "últimos 30 días", "este año"), convertí vos la referencia a fechas concretas `YYYY-MM-DD` y pasalas como `since`/`until`. Si la empresa define un año comercial propio (una temporada/campaña que no coincide con el calendario), usá ESE rango cuando lo mencionen.
@@ -71,12 +71,12 @@ Cada persona tiene, además de la memoria del equipo, **su memoria privada**: lo
 - Si dice que algo **no se guarde** o que **no vaya a One Brain** → no llames a `brain_save`. Ni privado: no se guarda.
 - **Decidí por de qué trata la memoria, no por a quién nombra.** Un presupuesto para un cliente personal → `privada: true`. Una nota de otro proyecto que nombra a ese cliente de pasada → `privada: false`. Si no pasás nada, el servidor la deja privada sólo cuando el **título** nombra un cliente personal de quien guarda. Una entidad nace personal cuando se la nombra por primera vez en una memoria privada.
 - La respuesta trae `guardada_en`: decilo siempre en una línea — "Guardé en tu memoria privada: [título]" o "Guardé en el equipo: [título]". Si quedó mal, se corrige con el candado del panel.
-- Una privada no se puede mencionar a otro (`brain_mention`): el otro no la vería.
+- Una privada no se puede mencionar a otro (`brain_aviso`): el otro no la vería.
 
 ## Mencionar a un compañero (notificar) — NO es lo mismo que linkear
-Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_mention` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.
+Cuando el usuario quiera **avisarle, mencionar, notificar o pedirle algo a una persona** del equipo ("mencionalo a Fran", "avisale a X que…", "que lo vea Y"), usá SIEMPRE `brain_aviso` con `op: mencionar` (`to`: su nombre o email, `body`: qué tiene que ver/hacer, y `entry_id` de la nota si la acabás de guardar). Eso le llega como PENDIENTE en su panel y su terminal.
 
-⚠️ Poner a la persona en el campo `entities` de `brain_save` la conecta al grafo pero **NO la notifica** — no cumple el pedido. Si el usuario pide "guardá esto Y avisale a Fran", son DOS acciones: `brain_save` (la nota) + `brain_mention` (el aviso, con el `entry_id` que devolvió el save). No las confundas ni omitas la mención.
+⚠️ Poner a la persona en el campo `entities` de `brain_save` la conecta al grafo pero **NO la notifica** — no cumple el pedido. Si el usuario pide "guardá esto Y avisale a Fran", son DOS acciones: `brain_save` (la nota) + `brain_aviso` (el aviso, con el `entry_id` que devolvió el save). No las confundas ni omitas la mención.
 
 ## Ficha de proyecto
 Un proyecto puede tener ficha: el estado vigente en renglones (tareas, bloqueos, lo pactado, salvedades, diagrama). Es la fuente del estado; los handoffs y las memorias cuentan el porqué.

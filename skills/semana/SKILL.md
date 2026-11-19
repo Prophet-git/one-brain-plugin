@@ -1,6 +1,6 @@
 ---
 name: semana
-description: "Usar cuando el usuario pregunta por su semana de trabajo con Claude Code o la del equipo: \"qué hice esta semana\", \"reporte semanal\", \"cuántas horas le dediqué a X\", \"cuántas horas llevo con X\", \"cuánto me costó X en total\", \"cuánto gastamos en Y\", \"Semana no se actualiza\", \"este proyecto está mal asignado\", \"/one-brain:semana\". Lee la semana con brain_semana, corrige asignaciones con brain_semana_asignar y fuerza el envío con onebrain-semana-push --ahora, sin pedirle nada a la persona."
+description: "Usar cuando el usuario pregunta por su semana de trabajo con Claude Code o la del equipo: \"qué hice esta semana\", \"reporte semanal\", \"cuántas horas le dediqué a X\", \"cuántas horas llevo con X\", \"cuánto me costó X en total\", \"cuánto gastamos en Y\", \"Semana no se actualiza\", \"este proyecto está mal asignado\", \"/one-brain:semana\". Lee la semana con brain_semana, corrige asignaciones con brain_entidad_editar (op agregar_alias) y fuerza el envío con onebrain-semana-push --ahora, sin pedirle nada a la persona."
 ---
 
 # Semana
@@ -22,17 +22,17 @@ Devuelve datos, no texto: `horas` (de reloj, lo paralelo cuenta una vez), `proye
 
 `pct_ventana` es el número del plan por cliente: el % real del medidor en la ventana de 7 días abierta, repartido por costo a precio de API dentro de esa ventana. El total es medido y el reparto es estimado: la suma con Interno da `ventana_clientes.pct_total`, igual que `plan_queda`. Sólo existe para quien pregunta y para la semana en curso; si es null, decí lo que dice `ventana_clientes.motivo`, no calcules un %. El `pct_plan` de `proyectos` es otra cosa: ESTIMADO contra la semana, no lo sumes por cliente. `costo_api_referencia` es lo que costaría por API: no lo presentes como gastado. Lo que le cuesta de verdad a quien pregunta es `mes.parte_plan_usd`: pasá `plan_usd_mes` con lo que paga por mes y el server lo reparte por uso del plan en el mes. `sin_asignar` es para corregir asignaciones, no va en el mapa.
 
-Si un proyecto cae en interno y es de un cliente, se une con `brain_ficha_editar` (op `cliente`). Si el mismo cliente figura con dos nombres de tipo cliente, el repetido pasa a proyecto (`brain_entity_set_type`) y se le pone de cliente el nombre que queda. Si no está claro de quién es, preguntá: no lo adivines.
+Si un proyecto cae en interno y es de un cliente, se une con `brain_ficha_editar` (op `cliente`). Si el mismo cliente figura con dos nombres de tipo cliente, el repetido pasa a proyecto (`brain_entidad_editar` con `op: tipo`) y se le pone de cliente el nombre que queda. Si no está claro de quién es, preguntá: no lo adivines.
 
 ## 2. Corregir lo mal asignado (antes de reportar)
 
 Mirá `sin_asignar`. Cada entrada es tiempo que no cayó en ningún cliente:
 
-- **Un repo sin cliente** (`tipo: "repo sin cliente"`, ej. `whatsapp-responder`): si por el nombre, los `ejemplos` (títulos) o las `pistas` está claro de qué cliente es, asignalo con `brain_semana_asignar({ nombre: "whatsapp-responder", proyecto: "Acme" })`. Si no está claro, preguntá en una línea, con tu mejor candidato.
+- **Un repo sin cliente** (`tipo: "repo sin cliente"`, ej. `whatsapp-responder`): si por el nombre, los `ejemplos` (títulos) o las `pistas` está claro de qué cliente es, asignalo con `brain_entidad_editar({ entity: "Acme", op: "agregar_alias", alias: "whatsapp-responder" })`. Si no está claro, preguntá en una línea, con tu mejor candidato.
 - **`General`** (`tipo: "sin señal"`): el bloque no tocó ningún repo ni nombró a nadie. Mirá sus `pistas` y `ejemplos`; si aparece un repo o un nombre de cliente, asigná ESE nombre. `General` en sí no se asigna.
 - Si la persona dice que un proyecto está mal ("eso es de Acme, no de Globex"), asigná el repo o el nombre que lo causó.
 
-`brain_semana_asignar` suma un alias al cliente y corrige **todas** las semanas, también las viejas. Devuelve `bloques_que_cambian` y `cambios` (de qué a qué): decí en una línea qué movió. Rechaza personas, nombres que ya son otra entidad y proyectos que no existen; no lo fuerces, leé el motivo.
+`brain_entidad_editar` con `op: agregar_alias` suma un alias al cliente y corrige **todas** las semanas, también las viejas. Devuelve `bloques_que_cambian` y `cambios` (de qué a qué): decí en una línea qué movió. Rechaza personas, nombres que ya son otra entidad y proyectos que no existen; no lo fuerces, leé el motivo.
 
 Después de asignar, volvé a llamar `brain_semana` para reportar con los números corregidos.
 
