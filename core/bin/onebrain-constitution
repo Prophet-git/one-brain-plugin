@@ -3,8 +3,7 @@
 # Uso: onebrain-constitution set <archivo.md>
 OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
 . "$OB_BIN_DIR/../scripts/state-dir.sh"
-DIR=$(ob_state_dir)
-FILE="$DIR/token"
+FILE=$(ob_token_file)
 URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 
 # Para ob_skill_cmd: cómo se invoca una skill de One Brain en el programa donde esto corre.

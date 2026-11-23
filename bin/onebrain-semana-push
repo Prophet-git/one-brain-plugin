@@ -39,15 +39,31 @@ fi
 # El token vive en el cajón del perfil (state-dir.sh), igual que para onebrain-save.
 [ -r "$PLUGIN/core/scripts/state-dir.sh" ] || exit 0
 . "$PLUGIN/core/scripts/state-dir.sh"
-TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
+TOKEN_FILE=$(ob_token_file)
 if [ ! -s "$TOKEN_FILE" ]; then
   [ -n "$AHORA" ] && echo "semana: esta Mac no tiene token de One Brain; conectala con /one-brain:connect y volvé a correr esto"
   exit 0
 fi
+# Semana lee TODAS las sesiones de la Mac, de todas las carpetas, y cada una va al cerebro de SU
+# carpeta (.onebrain; sin archivo, el por defecto). Una sesión sube sólo las de su cerebro, con
+# un cache propio por cerebro. Antes subía todo con el token de la sesión que la disparaba y las
+# horas de los demás proyectos terminaban ahí (23-nov-2026).
+#
+# Una sesión que usa otro cerebro sin que la carpeta lo pida (ONE_BRAIN_STATE_DIR o
+# ONE_BRAIN_TOKEN_FILE a mano) no sube nada: no hay ninguna carpeta que sea de ese cerebro.
+SESION=$(ob_cerebro_de_token "$TOKEN_FILE")
+POR_DEFECTO=$(ob_cerebro_de_token "$(ob_token_file_por_defecto)")
+if [ -n "$POR_DEFECTO" ] && [ "$SESION" != "$POR_DEFECTO" ] && [ "$SESION" != "$(ob_cerebro_de_carpeta)" ]; then
+  [ -n "$AHORA" ] && echo "semana: esta sesión usa otro team ($SESION) sin .onebrain; Semana sube sólo el team de cada carpeta"
+  exit 0
+fi
+export ONE_BRAIN_SEMANA_CEREBRO="$SESION" ONE_BRAIN_SEMANA_POR_DEFECTO="${POR_DEFECTO:-$SESION}"
 
 # Tope: una corrida cada 10 minutos (corre al final de cada turno). La marca es la hora del último
 # lanzamiento; --ahora la saltea, que es lo que usa el agente para forzar y verificar.
 ESTADO="${ONE_BRAIN_SEMANA_DIR:-$HOME/.onebrain/semana}"
+# El cerebro por defecto usa el estado de siempre; los demás, uno propio adentro.
+[ "$ONE_BRAIN_SEMANA_CEREBRO" = "$ONE_BRAIN_SEMANA_POR_DEFECTO" ] || ESTADO="$ESTADO/cerebros/$ONE_BRAIN_SEMANA_CEREBRO"
 mkdir -p "$ESTADO" 2>/dev/null || exit 0
 MARCA="$ESTADO/ultimo-lanzamiento"
 T=$(date +%s)
@@ -58,6 +74,6 @@ if [ -z "$AHORA" ]; then
 fi
 printf '%s' "$T" > "$MARCA" 2>/dev/null
 
-ONE_BRAIN_TOKEN_FILE="$TOKEN_FILE" \
+ONE_BRAIN_TOKEN_FILE="$TOKEN_FILE" ONE_BRAIN_SEMANA_DIR="$ESTADO" \
 ONE_BRAIN_URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}" \
   exec python3 "$RECOLECTOR" ${AHORA:+--ahora}

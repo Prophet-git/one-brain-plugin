@@ -1971,5 +1971,16 @@ else
   FAIL=$((FAIL+1)); printf 'FAIL: skills-test.sh — corrélo suelto para ver el detalle: sh plugin/tests/skills-test.sh\n'
 fi
 
+# A qué cerebro va cada cosa (token por sesión, Semana sólo desde el cerebro por defecto). Aparte
+# porque levanta su propio server falso.
+if [ ! -f "$DIR/cerebro-test.sh" ]; then
+  FAIL=$((FAIL+1)); printf 'FAIL: falta tests/cerebro-test.sh (desapareció la batería de a qué cerebro va cada cosa)\n'
+elif OB_SALIDA=$(sh "$DIR/cerebro-test.sh" 2>&1); then
+  PASS=$((PASS+1))
+else
+  # Los FAIL de adentro van al log: en la CI no hay cómo "correrlo suelto" para verlos.
+  FAIL=$((FAIL+1)); printf 'FAIL: cerebro-test.sh\n%s\n' "$(printf '%s\n' "$OB_SALIDA" | grep '^FAIL' | sed 's/^/  /')"
+fi
+
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

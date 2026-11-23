@@ -120,14 +120,26 @@ TAREAS_KV=""
 PAYLOAD=$(printf '{"type":"%s","title":%s,"content_md":%s,"entities":%s%s%s%s}' \
   "$TYPE" "$(jstr "$TITLE")" "$(jstr "$CONTENT")" "$ENT_JSON" "$AREA_KV" "$SUP_KV" "$TAREAS_KV")
 
-TOKEN_FILE="$(ob_config_dir)/token"
+TOKEN_FILE=$(ob_token_file)
 TOKEN=""
 [ -r "$TOKEN_FILE" ] && TOKEN=$(tr -d ' \t\r\n' < "$TOKEN_FILE" 2>/dev/null)
 URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-[ -n "$TOKEN" ] || { echo "onebrain-save: sin token; encolo" >&2; ob_enqueue "$PAYLOAD"; exit 0; }
+if [ -z "$TOKEN" ]; then
+  OB_CC=$(ob_cerebro_de_carpeta)
+  if [ -n "$OB_CC" ]; then
+    echo "onebrain-save: esta carpeta es del team $OB_CC (.onebrain) y esta Mac no tiene su llave. No lo guardo en otro team: queda en la cola de $OB_CC hasta que corras $(ob_skill_cmd cerebro) conectar <token>." >&2
+  else
+    echo "onebrain-save: sin token; encolo" >&2
+  fi
+  ob_enqueue "$PAYLOAD"; exit 0
+fi
 
+# El cerebro que pide la carpeta viaja aparte: el server rechaza si el token es de otro. Sin
+# .onebrain el header queda "x-onebrain-cerebro:" sin valor, y así curl no lo manda.
+OB_CC=$(ob_cerebro_de_carpeta)
 RESP=$(curl -s --max-time 15 -w '\n%{http_code}' -X POST \
   -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" \
+  -H "x-onebrain-cerebro:${OB_CC:+ $OB_CC}" \
   -d "$PAYLOAD" "$URL/api/entry" 2>/dev/null)
 CODE=$(printf '%s' "$RESP" | tail -n1)
 BODY=$(printf '%s' "$RESP" | sed '$d')

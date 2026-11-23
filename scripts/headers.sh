@@ -60,9 +60,20 @@ if [ -z "$TOKEN_FILE" ]; then
       # ONE_BRAIN_STATE_DIR, que ob_state_dir() ya mira primero y devuelve tal cual (gana sobre
       # todo) -- la llamada de adentro de ob_heredar_token queda gratis (una lectura de
       # variable), sin tocar ob_state_dir() ni su contrato para el resto del core.
+      # La carpeta de la sesión decide el cerebro (.onebrain). Este helper corre parado en la
+      # carpeta del plugin, así que se pregunta aparte (ob_cwd_de_sesion).
+      OB_CWD=$(ob_cwd_de_sesion)
+      export OB_CWD
+      ob_fijar_carpeta
       ONE_BRAIN_STATE_DIR=$(ob_state_dir)
       ob_heredar_token 2>/dev/null
-      TOKEN_FILE="$ONE_BRAIN_STATE_DIR/token"
+      # La regla del token es UNA (ob_token_file): con .onebrain devuelve vacío si no hay llave
+      # de ese cerebro o si la que hay es de otro. Ahí no se manda ninguna.
+      OB_CARPETA=$(ob_cerebro_de_carpeta)
+      TOKEN_FILE=$(ob_token_file)
+      if [ -z "$TOKEN_FILE" ]; then
+        REASON="one-brain: esta carpeta es del team $OB_CARPETA (.onebrain) y esta Mac no tiene su llave. No me conecto a ningún team. Corré /one-brain:cerebro conectar <token>."
+      fi
     else
       TOKEN_FILE="$BASE/.config/one-brain/token"
     fi
@@ -93,6 +104,10 @@ fi
 
 if [ -z "$TOKEN" ] && [ -n "${ONE_BRAIN_TOKEN:-}" ]; then
   TOKEN=$(printf '%s' "$ONE_BRAIN_TOKEN" | ob_hdr_clean)
+  # En una carpeta de otro cerebro, ONE_BRAIN_TOKEN sólo vale si es de ESE cerebro.
+  if [ -n "${OB_CARPETA:-}" ]; then
+    _obt=${TOKEN#ob_}; [ "${_obt%_*}" = "$OB_CARPETA" ] || TOKEN=""
+  fi
 fi
 
 # Un token real es "ob_" + slug + "_" + hex: solo alfanumérico, "_" y "-" (ver
@@ -109,7 +124,13 @@ esac
 # del server). Lo pone el programa y no el modelo, que no tiene cómo tocar los headers del MCP. Va
 # sólo con token: sin token el server ni mira el pedido.
 if [ -n "$TOKEN" ]; then
-  printf '{"Authorization":"Bearer %s","x-onebrain-client":"claude-code"}' "$TOKEN"
+  # x-onebrain-cerebro: el cerebro que pide la carpeta. El server rechaza si el token es de
+  # otro (segunda barrera, del lado del server). Sin .onebrain no va, como siempre.
+  if [ -n "${OB_CARPETA:-}" ]; then
+    printf '{"Authorization":"Bearer %s","x-onebrain-client":"claude-code","x-onebrain-cerebro":"%s"}' "$TOKEN" "$OB_CARPETA"
+  else
+    printf '{"Authorization":"Bearer %s","x-onebrain-client":"claude-code"}' "$TOKEN"
+  fi
 else
   printf '{}'
   # REASON ya trae su propia acción concreta cuando hay un motivo específico; si no hay

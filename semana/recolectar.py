@@ -393,6 +393,37 @@ def parsear_sesion(path):
     }
 
 
+RE_CEREBRO = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+
+def cerebro_de_cwd(cwd, por_defecto, home=None):
+    """A qué cerebro pertenece una sesión, por su carpeta: el .onebrain más cercano subiendo
+    (sin llegar a la carpeta del usuario), con la misma lectura que state-dir.sh. Sin .onebrain,
+    o si la carpeta ya no existe, el cerebro por defecto de la Mac."""
+    if not cwd:
+        return por_defecto
+    home = Path(home or Path.home()).resolve()
+    d = Path(cwd)
+    while True:
+        if d == home or d == d.parent:
+            return por_defecto
+        f = d / ".onebrain"
+        if f.is_file():
+            try:
+                for linea in f.read_text(errors="replace").splitlines():
+                    linea = linea.strip()
+                    if linea.startswith("#"):
+                        continue
+                    if linea.startswith("cerebro") or linea.startswith("team"):
+                        linea = linea.split(":", 1)[-1].strip()
+                    if RE_CEREBRO.match(linea):
+                        return linea
+            except OSError:
+                pass
+            return por_defecto
+        d = d.parent
+
+
 def repo_de_cwd(cwd):
     if not cwd:
         return None
@@ -615,7 +646,7 @@ def leer_plan(plan, desde_ts):
     return muestras
 
 
-def recolectar(proyectos, estado, enviar, plan=None, email=None):
+def recolectar(proyectos, estado, enviar, plan=None, email=None, cerebro=None, por_defecto=None):
     """Sube lo que cambió desde la última corrida. Devuelve cuántos bloques y muestras subió.
 
     Un archivo se marca como subido sólo cuando todos sus bloques llegaron: si el envío se corta a
@@ -636,6 +667,13 @@ def recolectar(proyectos, estado, enviar, plan=None, email=None):
             if cache.get(str(f)) == fi:
                 continue
             s = parsear_sesion(f)
+            # Cada sesión va al cerebro de SU carpeta (.onebrain), no al de la sesión que sube:
+            # si no, las horas de todos los proyectos terminan en un solo cerebro. Las de otro
+            # cerebro se marcan en el cache de ÉSTE (cada cerebro tiene el suyo) para no volver
+            # a leerlas en cada corrida.
+            if cerebro and cerebro_de_cwd(s["cwd"], por_defecto) != cerebro:
+                cache[str(f)] = fi
+                continue
             bs = bloques(s)
         except OSError:
             continue  # Claude Code lo borró o lo está rotando: va en la próxima
@@ -928,6 +966,11 @@ def main(args):
         print(seco(claude / "projects"))
         return 0
     url = os.environ.get("ONE_BRAIN_URL") or "https://onebrain.prophet.lat"
+    cerebro = os.environ.get("ONE_BRAIN_SEMANA_CEREBRO") or None
+    por_defecto = os.environ.get("ONE_BRAIN_SEMANA_POR_DEFECTO") or None
+    # Las muestras del plan son de la Mac, no de una carpeta: van sólo al cerebro por defecto.
+    if cerebro and cerebro != por_defecto:
+        plan = None
     token_p = os.environ.get("ONE_BRAIN_TOKEN_FILE")
     token = Path(token_p).read_text().strip() if token_p and Path(token_p).is_file() else ""
     if not token:
@@ -950,7 +993,8 @@ def main(args):
             # Antes de leer los logs (unos 13 s de CPU en una Mac con historia), un lote vacío:
             # si Semana está apagada en el cerebro el server contesta 403 y no se lee nada.
             preguntar_llave(enviar)
-            res = recolectar(claude / "projects", estado, enviar, plan=plan)
+            res = recolectar(claude / "projects", estado, enviar, plan=plan,
+                             cerebro=cerebro, por_defecto=por_defecto)
         except ErrorEnvio as e:
             if e.codigo in ("401", "403", "404"):
                 anotar_pausa(estado, e.codigo, token)

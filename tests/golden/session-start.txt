@@ -1,4 +1,4 @@
-One Brain · Cerebro: test
+One Brain · Team: test
 
 One Brain: el día 2026-07-30 quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H "Authorization: Bearer $(cat "<HOME>/.config/one-brain/token")" <URL>/api/synthesis
 

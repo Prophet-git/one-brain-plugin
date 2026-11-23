@@ -2,8 +2,22 @@
 // para poder testearla: mezclar un archivo de entorno ajeno y decidir si una credencial está
 // vencida son justo las cosas que no se pueden "probar a mano" sin arriesgar el .env de alguien.
 
+import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
+
+/** El archivo del token de ESTA sesión, con la MISMA regla que el shell (`ob_token_file` en
+ *  state-dir.sh): no se reescribe acá. Antes estos comandos leían siempre
+ *  ~/.config/one-brain/token y, en un perfil o en otro cerebro, usaban la llave equivocada.
+ *  state-dir.sh va como $0 del shell: así deduce el perfil por la ruta del paquete instalado,
+ *  igual que cuando lo corre un hook. ONE_BRAIN_CONFIG_DIR queda como nombre viejo de
+ *  ONE_BRAIN_STATE_DIR. */
+export function tokenFile(env = process.env) {
+  const sd = join(import.meta.dirname, "state-dir.sh");
+  const e = { ...env };
+  if (e.ONE_BRAIN_CONFIG_DIR && !e.ONE_BRAIN_STATE_DIR) e.ONE_BRAIN_STATE_DIR = e.ONE_BRAIN_CONFIG_DIR;
+  return execFileSync("sh", ["-c", '. "$0"; ob_token_file', sd], { env: e, encoding: "utf8" }).trim();
+}
 
 
 /** En qué programa corre esta copia del core: "codex" | "claude".

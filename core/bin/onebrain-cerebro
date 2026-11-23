@@ -1,0 +1,100 @@
+#!/bin/sh
+# Ver, usar y cambiar de cerebro. Un cerebro por carpeta: el archivo .onebrain en la raíz del
+# repo dice a qué cerebro pertenece, y la llave de cada cerebro vive aparte, en esta Mac.
+#
+#   onebrain-cerebro                  qué cerebro usa esta carpeta y qué llaves hay en esta Mac
+#   onebrain-cerebro usar <cerebro>   escribe .onebrain en la raíz del repo (se commitea)
+#   onebrain-cerebro conectar <token> guarda la llave de un cerebro sin tocar la de por defecto
+#
+# La llave por defecto sigue en el cajón del perfil (~/.config/one-brain/token). Las demás van
+# en <cajón del perfil>/cerebros/<cerebro>/token, con permisos 600.
+OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
+. "$OB_BIN_DIR/../scripts/state-dir.sh"
+[ -r "$OB_BIN_DIR/../scripts/capture-lib.sh" ] && . "$OB_BIN_DIR/../scripts/capture-lib.sh" 2>/dev/null
+
+BASE=$(ob_state_dir_perfil)
+POR_DEFECTO=$(ob_cerebro_de_token "$BASE/token")
+
+# Los cerebros con llave en esta Mac: el por defecto primero y después los de cerebros/.
+llaves() {
+  [ -n "$POR_DEFECTO" ] && printf '%s (por defecto)\n' "$POR_DEFECTO"
+  for _obf in "$BASE"/cerebros/*/token; do
+    [ -s "$_obf" ] || continue
+    _obn=$(ob_cerebro_de_token "$_obf")
+    [ -n "$_obn" ] && printf '%s\n' "$_obn"
+  done
+}
+
+# La raíz del repo de la carpeta actual; si no es un repo, la carpeta misma.
+raiz() {
+  git rev-parse --show-toplevel 2>/dev/null || pwd
+}
+
+case "${1:-ver}" in
+  ver)
+    CC=$(ob_cerebro_de_carpeta)
+    if [ -n "$CC" ]; then
+      if [ -n "$(ob_token_file)" ]; then
+        echo "Esta carpeta usa el team $CC (lo dice $(ob_onebrain_archivo))."
+      else
+        echo "Esta carpeta es del team $CC (lo dice $(ob_onebrain_archivo)), pero esta Mac no tiene su llave."
+        echo "No se lee ni se guarda nada hasta conectarla: onebrain-cerebro conectar <token>."
+      fi
+    elif [ -n "$POR_DEFECTO" ]; then
+      echo "Esta carpeta no tiene .onebrain: usa el team por defecto, $POR_DEFECTO."
+    else
+      echo "Esta Mac no está conectada a ningún team todavía."
+    fi
+    L=$(llaves)
+    if [ -n "$L" ]; then
+      echo ""
+      echo "Llaves en esta Mac:"
+      printf '%s\n' "$L" | sed 's/^/  /'
+    fi
+    ;;
+  usar)
+    [ -n "${2:-}" ] || { echo "uso: onebrain-cerebro usar <team>" >&2; exit 1; }
+    case "$2" in
+      *[!a-z0-9_-]*|[!a-z0-9]*) echo "one-brain: '$2' no es un nombre de team (minúsculas, números y guiones)" >&2; exit 1 ;;
+    esac
+    R=$(raiz)
+    [ "$(ob_norm_path "$R")" = "$(ob_home)" ] && { echo "one-brain: no pongo .onebrain en tu carpeta de usuario: haría que todo fuera de ese team. Entrá a la carpeta del repo." >&2; exit 1; }
+    printf 'team: %s\n' "$2" > "$R/.onebrain" || exit 1
+    echo "Listo: $R/.onebrain dice team: $2. Commitealo para que lo tengan las otras copias del repo."
+    if [ "$2" = "$POR_DEFECTO" ] || [ -s "$BASE/cerebros/$2/token" ]; then
+      echo "Esta Mac tiene la llave de $2. Abrí una sesión nueva en esta carpeta para que tome el cambio."
+    else
+      echo "Esta Mac todavía no tiene la llave de $2: hasta conectarla no se lee ni se guarda nada acá."
+      echo "Conectala con: onebrain-cerebro conectar <token>"
+    fi
+    ;;
+  conectar)
+    [ -n "${2:-}" ] || { echo "uso: onebrain-cerebro conectar <token>" >&2; exit 1; }
+    T=$(printf '%s' "$2" | tr -d ' \t\r\n')
+    case "$T" in
+      ob_ag_*) echo "one-brain: ése es el token de un agente, no de una persona." >&2; exit 1 ;;
+      ob_*_*) ;;
+      *) echo "one-brain: eso no parece un token de One Brain (empieza con ob_)." >&2; exit 1 ;;
+    esac
+    case "$T" in *[!A-Za-z0-9_-]*) echo "one-brain: el token tiene caracteres inválidos." >&2; exit 1 ;; esac
+    N=${T#ob_}; N=${N%_*}
+    if [ -z "$POR_DEFECTO" ]; then
+      DEST="$BASE"   # la primera llave de la Mac es la de por defecto, como hace connect
+    elif [ "$N" = "$POR_DEFECTO" ]; then
+      DEST="$BASE"
+    else
+      DEST="$BASE/cerebros/$N"
+    fi
+    mkdir -p "$DEST" || exit 1
+    : > "$DEST/.token.$$" && chmod 600 "$DEST/.token.$$" && printf '%s' "$T" > "$DEST/.token.$$" && mv "$DEST/.token.$$" "$DEST/token" || { rm -f "$DEST/.token.$$"; exit 1; }
+    if [ "$DEST" = "$BASE" ]; then
+      rm -f "$BASE/heredado" 2>/dev/null
+      echo "Listo: guardé la llave de $N como team por defecto de esta Mac."
+    else
+      echo "Listo: guardé la llave de $N. El team por defecto sigue siendo $POR_DEFECTO."
+      echo "Las carpetas con .onebrain que dicen team: $N van a usar esta llave."
+    fi
+    ;;
+  *)
+    echo "uso: onebrain-cerebro [ver | usar <team> | conectar <token>]" >&2; exit 1 ;;
+esac

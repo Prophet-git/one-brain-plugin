@@ -185,6 +185,18 @@ ob_repo_remote() {
 # ob_session_start — el arranque entero. Lee el input del hook de stdin (los dos programas lo
 # pasan igual: un JSON con session_id, cwd, transcript_path...). Silencioso ante cualquier
 # fallo: nunca bloquea el arranque de una sesión.
+# Con .onebrain, el cerebro queda FIJO para toda la sesión: el arranque lo escribe en
+# CLAUDE_ENV_FILE (Claude Code lo carga en cada comando de Bash). Sin esto, un `cd` a otro repo
+# adentro de la sesión cambiaría a dónde guarda onebrain-save. Sin .onebrain no se escribe nada:
+# todo queda como siempre. Codex no tiene CLAUDE_ENV_FILE y no pasa por acá.
+ob_fijar_cerebro_de_sesion() {
+  [ -n "${CLAUDE_ENV_FILE:-}" ] || return 0
+  [ -n "$(ob_cerebro_de_carpeta)" ] || return 0
+  _obsd=$(ob_state_dir)
+  case "$_obsd" in *\'*) return 0 ;; esac   # una comilla simple rompería el export: no se fija
+  printf "export ONE_BRAIN_STATE_DIR='%s'\n" "$_obsd" >> "$CLAUDE_ENV_FILE" 2>/dev/null
+}
+
 ob_session_start() {
   # Reintentar guardados que quedaron en cola (offline previo). BACKGROUNDEADO A PROPÓSITO:
   # el propio bloque de abajo ya backgroundea sus curls (context/synthesis/etc.) para acotar el
@@ -192,10 +204,17 @@ ob_session_start() {
   # acá de forma sincrónica, sumaría hasta 20×8s ANTES de que ese bloque siquiera arranque. El
   # subshell "( ... & )" lanza el flush y sigue de largo sin esperarlo (fire-and-forget): el
   # arranque nunca queda bloqueado por la cola, sin importar cuán lenta/caída esté la red.
-  ( ob_flush_queue >/dev/null 2>&1 & )
-
+  # La entrada va PRIMERO: trae la carpeta de la sesión (cwd), y de la carpeta sale el cerebro
+  # (.onebrain). La cola, la herencia y el token se resuelven recién con eso fijado.
   INPUT=$(cat 2>/dev/null)
   SESSION=$(ob_json_field session_id "$INPUT")
+  OB_CWD=$(ob_json_field cwd "$INPUT"); [ -n "$OB_CWD" ] || OB_CWD=$PWD
+  export OB_CWD
+  ob_fijar_carpeta
+  ob_anotar_sesion "$SESSION" "$OB_CWD"
+  ob_fijar_cerebro_de_sesion
+
+  ( ob_flush_queue >/dev/null 2>&1 & )
   # Self-test del parser (Capa 3): ¿el hook puede leer el input en ESTE entorno? Se reporta al
   # server (header x-hook-ok) para que el operador lo vea en el panel, y si falla se avisa fuerte
   # en el contexto de arranque. Nunca en silencio.
@@ -204,7 +223,7 @@ ob_session_start() {
   # Un perfil nuevo hereda el token de la máquina una sola vez (ver state-dir.sh).
   ob_heredar_token 2>/dev/null
 
-  TOKEN_FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
+  TOKEN_FILE=$(ob_token_file)
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
   BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; REVISION=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
   SKILLSMSG=""
@@ -251,7 +270,6 @@ ob_session_start() {
     # repo=: el remote de git de la carpeta de la sesión, para que el server sume la ficha del
     # proyecto que vive en ese repo. Lo codifica curl (-G --data-urlencode): no suma ninguna
     # herramienta que el arranque no use ya. Sin git o sin remote, la llamada queda como antes.
-    OB_CWD=$(ob_json_field cwd "$INPUT"); [ -n "$OB_CWD" ] || OB_CWD=$PWD
     OB_REPO=$(ob_repo_remote "$OB_CWD")
     if [ -n "$OB_REPO" ]; then
       curl -s --max-time 8 -G --data-urlencode "repo=$OB_REPO" -H "Authorization: Bearer $TOKEN" "$URL/api/resume" > "$OB_TMP/resume" 2>/dev/null &
@@ -297,7 +315,7 @@ ob_session_start() {
     # De la síntesis sólo viene el día pendiente. El material se pide recién cuando la persona
     # dice que sí — con la orden concreta que va en el aviso de abajo.
     SYN_DAY=$(ob_json_field period_key "$(cat "$OB_TMP/synthesis" 2>/dev/null)")
-    [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat \"$(ob_state_dir)/token\")\" $URL/api/synthesis"
+    [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat \"$(ob_token_file)\")\" $URL/api/synthesis"
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
     # Cuántas menciones te quedan sin hacer, en <estado>/pendientes, para la barra de estado. Sólo

@@ -2,12 +2,24 @@
 # Manejo del token local de One Brain.
 OB_BIN_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)
 . "$OB_BIN_DIR/../scripts/state-dir.sh"
-DIR=$(ob_state_dir)
-FILE="$DIR/token"
+FILE=$(ob_token_file)
+# Para GUARDAR no vale la barrera de ob_token_file (que da vacío si todavía no hay llave del
+# cerebro de la carpeta): se escribe en el cajón que corresponde, y abajo se controla que el
+# token sea de ese cerebro.
+[ -n "$FILE" ] || FILE="${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
+DIR=$(dirname -- "$FILE")
 URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
 case "$1" in
   set)
     [ -n "$2" ] || { echo "uso: onebrain-token set <token>" >&2; exit 1; }
+    OB_CC=$(ob_cerebro_de_carpeta)
+    if [ -n "$OB_CC" ]; then
+      _obt=${2#ob_}
+      if [ "${_obt%_*}" != "$OB_CC" ]; then
+        echo "one-brain: esta carpeta es del team $OB_CC (.onebrain) y ese token es de otro. No lo guardo acá." >&2
+        exit 1
+      fi
+    fi
     # El token es UNO por perfil: guardar otro deja a la persona afuera del cerebro anterior.
     # Reconectar al mismo (se rotó la llave, se reinstaló el plugin) es rutina y no se avisa.
     if [ -r "$FILE" ]; then

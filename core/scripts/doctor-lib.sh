@@ -6,7 +6,7 @@
 # El formato es fijo a propósito: el ejecutable lo imprime como reporte y la skill lo lee para
 # explicarle al usuario qué hacer. Ningún chequeo modifica nada — el doctor diagnostica.
 
-ob_doc_token_file() { printf '%s' "${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"; }
+ob_doc_token_file() { ob_token_file; }
 
 # ¿Hay token guardado y legible? Nunca imprime el token: solo su presencia y longitud.
 ob_doc_token() {

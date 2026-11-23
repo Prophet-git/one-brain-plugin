@@ -12,7 +12,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { skillCmd } from "../scripts/project-lib.mjs";
+import { skillCmd, tokenFile } from "../scripts/project-lib.mjs";
 import { preguntar, esSi } from "../scripts/tty.mjs";
 
 const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
@@ -20,7 +20,7 @@ const URL_BASE = process.env.ONE_BRAIN_URL || "https://onebrain.prophet.lat";
 function salir(msg, codigo = 1) { console.error(msg); process.exit(codigo); }
 
 function token() {
-  const f = join(process.env.ONE_BRAIN_CONFIG_DIR || join(homedir(), ".config", "one-brain"), "token");
+  const f = tokenFile();
   if (!existsSync(f)) salir(`one-brain: sin token. Conectá con ${skillCmd("connect")} <token>.`);
   return readFileSync(f, "utf8").trim();
 }

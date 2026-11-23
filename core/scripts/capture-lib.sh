@@ -22,6 +22,15 @@ done
 if ! command -v ob_state_dir >/dev/null 2>&1; then
   ob_state_dir() { printf '%s/.config/one-brain' "$(printf '%s' "${HOME:-$USERPROFILE}" | tr '\\' '/')"; }
 fi
+# Mismo motivo: sin state-dir.sh tampoco existe la regla del token. Se define con la misma
+# prioridad que allá (variable > carpeta de estado), para que la cola nunca caiga al cerebro de
+# la máquina cuando la sesión trabaja en otro.
+if ! command -v ob_token_file >/dev/null 2>&1; then
+  ob_token_file() {
+    if [ -n "${ONE_BRAIN_STATE_DIR:-}" ] && [ -z "${ONE_BRAIN_TOKEN_FILE:-}" ]; then printf '%s/token' "$ONE_BRAIN_STATE_DIR"; return; fi
+    printf '%s' "${ONE_BRAIN_TOKEN_FILE:-$(ob_state_dir)/token}"
+  }
+fi
 
 # ob_host — en qué programa corre esta copia del core: "codex" | "claude".
 #
@@ -364,12 +373,13 @@ ob_enqueue() {
 # reintentándose para siempre: segundos de curl inútil en cada arranque y una memoria que la
 # skill reporta como "pendiente, no perdida" y nunca va a entrar.
 ob_try_save() {
-  _tf="$(ob_config_dir)/token"
+  _tf=$(ob_token_file)
   _tok=""
   [ -r "$_tf" ] && _tok=$(tr -d ' \t\r\n' < "$_tf" 2>/dev/null)
   # sin token no es un payload malo: es una instalación a medio conectar. Reintentable.
   [ -n "$_tok" ] || return 1
   _url="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
+  _obcc=$(ob_cerebro_de_carpeta 2>/dev/null)
   # El CUERPO de la respuesta se conserva (antes iba a /dev/null). Cuando el server rechaza un
   # payload dice exactamente qué campo está mal, y tirar ese texto es la razón de que un
   # dead-letter llegara sin motivo: el aviso al usuario tenía que adivinar ("título o contenido
@@ -379,6 +389,7 @@ ob_try_save() {
   _resp=$(curl -s --max-time 8 -w '\n%{http_code}' -X POST \
     -H "Authorization: Bearer $_tok" -H "content-type: application/json" \
     -H "x-onebrain-client: $(ob_via)" \
+    -H "x-onebrain-cerebro:${_obcc:+ $_obcc}" \
     -d "$1" "$_url/api/entry" 2>/dev/null)
   _code=$(printf '%s' "$_resp" | tail -n1)
   case "$_code" in

@@ -72,18 +72,151 @@ ob_profile_slug() {
   printf '%s-%06d' "$(ob_profile_name "$1")" "$((_obk % 1000000))"
 }
 
-# La respuesta: dónde vive el estado de ESTA sesión.
-ob_state_dir() {
-  if [ -n "${ONE_BRAIN_STATE_DIR:-}" ]; then printf '%s' "$ONE_BRAIN_STATE_DIR"; return; fi
+# El cajón del PERFIL, sin mirar la carpeta: el cerebro por defecto de esta Mac.
+ob_state_dir_perfil() {
   _obraiz="$(ob_home)/.config/one-brain"
   _obcfg=$(ob_host_config_dir)
   if [ "$_obcfg" = "$(ob_home)/.claude" ]; then printf '%s' "$_obraiz"; return; fi
   printf '%s/perfiles/%s' "$_obraiz" "$(ob_profile_slug "$_obcfg")"
 }
 
+# El .onebrain más cercano, subiendo desde la carpeta de la sesión (OB_CWD, que los hooks sacan
+# de su entrada, o PWD: el headersHelper del MCP corre parado en la carpeta de la sesión). Igual
+# que .vercel/project.json: el repo dice a qué cerebro pertenece y la llave vive aparte. No mira
+# la carpeta del usuario ni más arriba: un .onebrain ahí haría que TODO fuera de ese cerebro.
+ob_onebrain_archivo() {
+  _obd=$(ob_norm_path "${OB_CWD:-${PWD:-}}")
+  _obh=$(ob_home)
+  while [ -n "$_obd" ] && [ "$_obd" != "$_obh" ]; do
+    [ -f "$_obd/.onebrain" ] && { printf '%s/.onebrain' "$_obd"; return 0; }
+    case "$_obd" in /|*:/|.) return 0 ;; esac
+    _obd=$(dirname -- "$_obd")
+  done
+}
+
+# La carpeta de la sesión para quien NO la recibe: el headersHelper del MCP. Claude Code lo corre
+# parado en la carpeta del PLUGIN, sin CLAUDE_PROJECT_DIR (medido el 23-nov-2026): con PWD, el MCP
+# de una carpeta de El Profeta se conectaba con la llave de Prophet. En orden:
+#   1. La carpeta del proceso que lanzó este script ($PPID), si es Claude Code. Va primero porque CLAUDE_PID y CLAUDE_CODE_SESSION_ID se HEREDAN: un
+#      `claude -p` lanzado desde otra sesión trae los de la sesión de afuera.
+#   2. Lo que anotó el arranque para CLAUDE_CODE_SESSION_ID.
+#   3. La carpeta del proceso CLAUDE_PID.
+#   4. PWD, como antes.
+# La carpeta de un proceso sale de /proc en Linux y de lsof en Mac (~15 ms).
+ob_cwd_de_proceso() { # <pid>
+  case "$1" in ''|*[!0-9]*) return 0 ;; esac
+  if [ -e "/proc/$1/cwd" ]; then readlink "/proc/$1/cwd" 2>/dev/null; return 0; fi
+  command -v lsof >/dev/null 2>&1 || return 0
+  lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1
+}
+
+# El nombre del programa de un proceso (para saber si el padre es Claude Code).
+ob_nombre_de_proceso() { # <pid>
+  case "$1" in ''|*[!0-9]*) return 0 ;; esac
+  if [ -r "/proc/$1/comm" ]; then cat "/proc/$1/comm" 2>/dev/null; return 0; fi
+  ps -o comm= -p "$1" 2>/dev/null
+}
+
+ob_cwd_de_sesion() {
+  # Sólo si el padre ES Claude Code: un shell intermedio (o un `sh` que reemplazó a su subshell,
+  # como hace dash) tiene otra carpeta, que no es la de la sesión.
+  case "$(ob_nombre_de_proceso "${PPID:-}")" in
+    *claude*)
+      _obpc=$(ob_cwd_de_proceso "$PPID")
+      [ -n "$_obpc" ] && { printf '%s' "$_obpc"; return 0; } ;;
+  esac
+  if [ -n "${CLAUDE_CODE_SESSION_ID:-}" ]; then
+    _obsf="$(ob_state_dir_perfil)/sesiones/$CLAUDE_CODE_SESSION_ID"
+    if [ -s "$_obsf" ]; then head -n 1 "$_obsf"; return 0; fi
+  fi
+  _obpc=$(ob_cwd_de_proceso "${CLAUDE_PID:-}")
+  [ -n "$_obpc" ] && { printf '%s' "$_obpc"; return 0; }
+  printf '%s' "${PWD:-}"
+}
+
+# Fija para este proceso (y sus hijos) el cerebro de la carpeta y el cajón, así no se recalculan.
+ob_fijar_carpeta() {
+  OB_CEREBRO_CARPETA=$(ob_cerebro_de_carpeta); [ -n "$OB_CEREBRO_CARPETA" ] || OB_CEREBRO_CARPETA=-
+  export OB_CEREBRO_CARPETA
+}
+
+# El arranque anota la carpeta de su sesión para que el MCP la encuentre (ver ob_cwd_de_sesion).
+# Los registros de más de 7 días se borran: una sesión no dura tanto.
+ob_anotar_sesion() { # <session_id> <cwd>
+  case "$1" in ''|*[!A-Za-z0-9_-]*) return 0 ;; esac
+  [ -n "$2" ] || return 0
+  _obsd="$(ob_state_dir_perfil)/sesiones"
+  mkdir -p "$_obsd" 2>/dev/null || return 0
+  printf '%s\n' "$2" > "$_obsd/$1" 2>/dev/null
+  find "$_obsd" -type f -mtime +7 -delete 2>/dev/null
+  return 0
+}
+
+# El team que pide la carpeta. El archivo dice "team: el-profeta" ("cerebro:" también vale, o sólo
+# "el-profeta");
+# las líneas que empiezan con # son comentarios. Vacío si no hay .onebrain.
+ob_cerebro_de_carpeta() {
+  # Calculado una vez por el arranque o por el helper del MCP (OB_CEREBRO_CARPETA, "-" = sin
+  # .onebrain): esto se pregunta en cada ob_state_dir y ob_token_file, y subir carpetas con sed
+  # cada vez le sumaba medio segundo al arranque (medido el 23-nov-2026).
+  case "${OB_CEREBRO_CARPETA:-}" in
+    -) return 0 ;;
+    ?*) printf '%s' "$OB_CEREBRO_CARPETA"; return 0 ;;
+  esac
+  _oba=$(ob_onebrain_archivo)
+  [ -n "$_oba" ] || return 0
+  sed -n 's/^[[:space:]]*team[[:space:]]*:[[:space:]]*//; s/^[[:space:]]*cerebro[[:space:]]*:[[:space:]]*//; /^[[:space:]]*#/d; s/[[:space:]]*$//; /^[a-z0-9][a-z0-9_-]*$/p' "$_oba" 2>/dev/null | head -n 1
+}
+
+# La respuesta: dónde vive el estado de ESTA sesión.
+#   1. ONE_BRAIN_STATE_DIR (a mano, o fijada por el arranque para toda la sesión).
+#   2. .onebrain: cerebros/<nombre> adentro del cajón del perfil, con su token, su cola y sus
+#      pendientes. Si el .onebrain nombra el cerebro por defecto, es el cajón de siempre.
+#   3. El perfil, como siempre. Sin .onebrain nada cambia, byte a byte.
+ob_state_dir() {
+  if [ -n "${ONE_BRAIN_STATE_DIR:-}" ]; then printf '%s' "$ONE_BRAIN_STATE_DIR"; return; fi
+  _obbase=$(ob_state_dir_perfil)
+  _obcc=$(ob_cerebro_de_carpeta)
+  if [ -n "$_obcc" ] && [ "$_obcc" != "$(ob_cerebro_de_token "$_obbase/token")" ]; then
+    printf '%s/cerebros/%s' "$_obbase" "$_obcc"; return
+  fi
+  printf '%s' "$_obbase"
+}
+
+# El archivo del token de ESTA sesión. Es la ÚNICA regla: todo lo que manda algo al server
+# (MCP, arranque, onebrain-save, la cola, Semana, los comandos en Node) la usa. Antes cada uno
+# tenía la suya y onebrain-save ignoraba ONE_BRAIN_TOKEN_FILE: una sesión leía de un cerebro y
+# guardaba en otro (23-nov-2026).
+#
+# Con .onebrain hay una barrera más: el token tiene que ser de ESE cerebro (el nombre va adentro
+# del token, ob_<cerebro>_<hex>). Si no coincide, o no hay token, devuelve vacío y nadie manda
+# nada: se cierra, nunca se cae al cerebro por defecto.
+ob_token_file() {
+  if [ -n "${ONE_BRAIN_TOKEN_FILE:-}" ]; then _obtf=$ONE_BRAIN_TOKEN_FILE
+  else _obtf="$(ob_state_dir)/token"; fi
+  _obcc=$(ob_cerebro_de_carpeta)
+  if [ -n "$_obcc" ] && [ "$(ob_cerebro_de_token "$_obtf")" != "$_obcc" ]; then return 0; fi
+  printf '%s' "$_obtf"
+}
+
+# El token que usaría esta Mac sin ninguna variable puesta: el del perfil, como siempre.
+ob_token_file_por_defecto() {
+  printf '%s/token' "$(ob_state_dir_perfil)"
+}
+
+# ¿Esta sesión usa el cerebro por defecto de la Mac? Se compara el CONTENIDO del token, no la
+# ruta: dos rutas distintas con la misma llave son el mismo cerebro.
+# Si la Mac no tiene llave por defecto, la de la sesión es la única: cuenta como la por defecto.
+ob_cerebro_por_defecto() {
+  _obtd=$(tr -d ' \t\r\n' < "$(ob_token_file_por_defecto)" 2>/dev/null)
+  [ -n "$_obtd" ] || return 0
+  _obta=$(tr -d ' \t\r\n' < "$(ob_token_file)" 2>/dev/null)
+  [ "$_obta" = "$_obtd" ]
+}
+
 # ¿Esta sesión corre en un perfil distinto del de siempre? (para los avisos)
 ob_perfil_propio() {
-  [ "$(ob_state_dir)" != "$(ob_home)/.config/one-brain" ]
+  [ "$(ob_state_dir_perfil)" != "$(ob_home)/.config/one-brain" ]
 }
 
 # Un perfil nuevo hereda UNA VEZ el token de la máquina, y desde ahí es suyo.
@@ -99,6 +232,9 @@ ob_heredar_token() {
   _obdst=$(ob_state_dir)
   _obsrc="$(ob_home)/.config/one-brain/token"
   [ "$_obdst" = "$(ob_home)/.config/one-brain" ] && return 0   # el perfil de siempre no hereda de sí mismo
+  # El cajón de un cerebro de carpeta (.onebrain) NUNCA hereda: copiarle el token de la máquina
+  # sería guardar lo de El Profeta en Prophet, justo lo que .onebrain existe para impedir.
+  case "$_obdst" in */cerebros/*) return 0 ;; esac
   # Barrido de temporales huérfanos de intentos anteriores (un kill/crash/disco lleno/suspensión
   # a mitad de una corrida previa deja basura bajo ".token.<pid>"). Va ANTES del "ya tiene el
   # suyo": si no, un perfil que ya heredó nunca volvería a pasar por acá y esa basura -- que
@@ -157,11 +293,27 @@ ob_cerebro_de_token() {
 
 # La línea que abre el arranque. Vacía si no hay token: nunca inventar un nombre de cerebro.
 ob_linea_cerebro() {
-  _obc=$(ob_cerebro_de_token "$(ob_state_dir)/token")
+  _obcc=$(ob_cerebro_de_carpeta)
+  if [ -n "$_obcc" ]; then
+    if [ -n "$(ob_token_file)" ]; then
+      printf 'One Brain · Team: %s (por .onebrain)' "$_obcc"
+    else
+      printf 'One Brain · ⚠️ Esta carpeta es del team %s (lo dice %s) y esta Mac no tiene su llave. No se lee ni se guarda nada en ningún team hasta conectarla: %s conectar <token>. Decíselo al usuario antes de seguir.' \
+        "$_obcc" "$(ob_onebrain_archivo)" "$(ob_skill_cmd_cerebro)"
+    fi
+    return 0
+  fi
+  _obc=$(ob_cerebro_de_token "$(ob_token_file)")
   [ -n "$_obc" ] || return 0
   if ob_perfil_propio; then
-    printf 'One Brain · Cerebro: %s (perfil: %s)' "$_obc" "$(ob_profile_name "$(ob_host_config_dir)")"
+    printf 'One Brain · Team: %s (perfil: %s)' "$_obc" "$(ob_profile_name "$(ob_host_config_dir)")"
   else
-    printf 'One Brain · Cerebro: %s' "$_obc"
+    printf 'One Brain · Team: %s' "$_obc"
   fi
+}
+
+# Cómo se nombra el comando de cerebros en este programa. state-dir.sh no carga capture-lib.sh
+# (ob_skill_cmd vive ahí), así que se usa ése si está y si no, el ejecutable, que existe en los dos.
+ob_skill_cmd_cerebro() {
+  if command -v ob_skill_cmd >/dev/null 2>&1; then ob_skill_cmd cerebro; else printf 'onebrain-cerebro'; fi
 }
