@@ -6,6 +6,10 @@ Puede que tengas reuniones nuevas de Granola sin sincronizar al cerebro. Si quer
 
 Para guardar en One Brain usá el comando: <REPO>/plugin/scripts/../bin/onebrain-save (canal Bash, no depende de la tool MCP).
 
+📋 Tareas esperándote en One Brain (1):
+- «Arreglar el login» (Lempriere): Fran te la asignó. tarea t1 · avisos a1
+Presentalas antes que nada y esperá el sí (skill arranque).
+
 Quedaste a mitad del wizard de alta.
 
 Fran te mencionó en una nota de ayer.

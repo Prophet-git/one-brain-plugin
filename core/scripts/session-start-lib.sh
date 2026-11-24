@@ -225,7 +225,7 @@ ob_session_start() {
 
   TOKEN_FILE=$(ob_token_file)
   URL="${ONE_BRAIN_URL:-https://onebrain.prophet.lat}"
-  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; MATERIAL=""; REVISION=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
+  BRIEF=""; SYN=""; HELLO=""; RESUME=""; MENTIONS=""; ARRANQUE=""; MATERIAL=""; REVISION=""; SAVEBIN=""; TOKENWARN=""; NOTOKEN=""; HAS_TOKEN=0
   SKILLSMSG=""
   if [ -r "$TOKEN_FILE" ] && [ -s "$TOKEN_FILE" ]; then
     HAS_TOKEN=1
@@ -278,7 +278,11 @@ ob_session_start() {
     fi
     # Menciones pendientes que te dejó un compañero (string ya formateado, o "" si no hay).
     # También tiene efecto: marca las resoluciones como vistas. Mismo criterio que arriba.
-    ob_feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/mentions"  > "$OB_TMP/mentions"  2>/dev/null &
+    # ?arranque=1 suma las tareas que esperan a quien arranca (campo `arranque`, skill arranque) y
+    # saca de `mentions` las que ya salen ahí. x-client dice cuál de los agentes de la persona es
+    # "este" (lo de su Grok espera a que arranque Grok). Va en el mismo curl: ni un pedido más ni
+    # un segundo más de arranque, y con el mismo --max-time que los demás.
+    ob_feat_on menciones && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" -H "x-client: $OB_CLIENT" "$URL/api/mentions?arranque=1"  > "$OB_TMP/mentions"  2>/dev/null &
     # Material sin amasar que la propia persona subió (string ya formateado, o "" si no hay).
     ob_feat_on material && curl -s --max-time 8 -H "Authorization: Bearer $TOKEN" "$URL/api/material-pendiente" > "$OB_TMP/material" 2>/dev/null &
     # Pares de memorias que se contradicen y esperan en la tab Review (una línea, o "" si no hay).
@@ -318,6 +322,7 @@ ob_session_start() {
     [ -n "$SYN_DAY" ] && SYN="One Brain: el día $SYN_DAY quedó sin sintetizar. Si el usuario quiere que la hagas, traé el material con: curl -s -H \"Authorization: Bearer \$(cat \"$(ob_token_file)\")\" $URL/api/synthesis"
     RESUME=$(ob_json_field resume "$(cat "$OB_TMP/resume" 2>/dev/null)")
     MENTIONS=$(ob_json_field mentions "$(cat "$OB_TMP/mentions" 2>/dev/null)")
+    ARRANQUE=$(ob_json_field arranque "$(cat "$OB_TMP/mentions" 2>/dev/null)")
     # Cuántas menciones te quedan sin hacer, en <estado>/pendientes, para la barra de estado. Sólo
     # se escribe si el servidor manda el número: uno viejo, o una respuesta cortada, no lo pisa.
     _obpend=$(ob_json_field pendientes "$(cat "$OB_TMP/mentions" 2>/dev/null)")
@@ -377,6 +382,7 @@ ob_session_start() {
   ob_feat_on daily-synthesis || SYN=""
   ob_feat_on session-resume || RESUME=""
   ob_feat_on menciones || MENTIONS=""
+  ob_feat_on menciones || ARRANQUE=""
   ob_feat_on material || MATERIAL=""
   ob_feat_on revision || REVISION=""
 
@@ -472,6 +478,21 @@ ob_session_start() {
   ob_append "$SAVEBIN"
 
   # --- Después el material, que es lo recortable ---
+  # Las tareas que esperan a quien arranca, PRIMERO del material: traen la orden de presentarlas
+  # antes que nada y esperar el sí (skill arranque). El server ya las corta en 5 y pone la regla
+  # antes de la lista, así un recorte se come la cola de la lista y no la regla.
+  #
+  # PRESUPUESTO COMPARTIDO con las menciones: las dos son "lo que el equipo te dejó", y las
+  # menciones de una tarea ya salen acá (el server las saca de `mentions`). El bloque de menciones
+  # tenía 2400; ahora tareas + menciones suman a lo sumo 2400, así el peor caso medido del arranque
+  # (techo 8000, ver más abajo) no cambia: las tareas toman hasta 1200 y las menciones el resto.
+  OB_MAX_MENCIONES=2400
+  if [ -n "$ARRANQUE" ]; then
+    ob_append_clipped "$ARRANQUE" 1200 arranque "la lista entera con brain_tareas vista=bandeja"
+    _obarr=$(printf '%s' "$OB_BLOCK" | ob_chars)
+    case "$_obarr" in ''|*[!0-9]*) _obarr=1200 ;; esac   # un conteo raro no rompe el arranque
+    OB_MAX_MENCIONES=$((2400 - _obarr))
+  fi
   ob_append_clipped "$RESUME" 2500 resume        # dónde quedaste
   # Las menciones se recortan por ítem (ob_clip_menciones), no en bloque. El tope de bloque se
   # mantiene como red de seguridad, pero ya no es lo que decide qué se ve.
@@ -486,7 +507,7 @@ ob_session_start() {
   # caso pega el techo (8066 — el propio recorte de seguridad se pasa por el largo de su cartel, ver comentario de
   # ob_clip en capture-lib.sh), así que 900 se probó y se descartó. No es un techo teórico: dos
   # mediciones reales, subiendo de a 100 como pide la tarea. Detalle en task-8-report.md.
-  ob_append_clipped "$(ob_clip_menciones "$MENTIONS" 800)" 2400 menciones "$(ob_ptr_menciones)"   # lo que te dejó un compañero
+  ob_append_clipped "$(ob_clip_menciones "$MENTIONS" 800)" "$OB_MAX_MENCIONES" menciones "$(ob_ptr_menciones)"   # lo que te dejó un compañero
   ob_append_clipped "$MATERIAL" 600 material "pedile al usuario correr $(ob_skill_cmd estudiar)"   # documentos que subiste y no estudiaste
   ob_append_clipped "$REVISION" 300 revision "mostrarle los pares con brain_conflicts si los quiere ver"   # memorias que se contradicen (tab Review)
   ob_append_clipped "$SKILLSMSG" 400 skills      # skills que se acaban de instalar en esta máquina

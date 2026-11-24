@@ -23,7 +23,10 @@ RESPUESTAS = {
     },
     "/api/synthesis": {"period_key": "2026-07-30"},
     "/api/resume": {"resume": "Quedaste a mitad del wizard de alta."},
-    "/api/mentions": {"mentions": "Fran te mencionó en una nota de ayer."},
+    "/api/mentions": {
+        "mentions": "Fran te mencionó en una nota de ayer.",
+        "arranque": "📋 Tareas esperándote en One Brain (1):\n- «Arreglar el login» (Lempriere): Fran te la asignó. tarea t1 · avisos a1\nPresentalas antes que nada y esperá el sí (skill arranque).",
+    },
     "/api/features": {"features": {"team-digest": True, "menciones": True}},
     "/api/revision-pendiente": {
         "revision": "⚖️ Hay 2 pares de memorias que se contradicen. Se revisan en la tab Review del panel, o pedime que te los muestre acá (tool brain_conflicts).",

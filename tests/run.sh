@@ -1388,6 +1388,8 @@ awk 'BEGIN{
   for(i=0;i<200;i++) printf "Retomá donde quedaste, detalle largo del handoff número %d. ", i;
   printf "\", \"mentions\":\"";
   for(i=0;i<40;i++) printf "Fran te mencionó en el hilo %d y pidió que revises el DSN. ", i;
+  printf "\", \"arranque\":\"📋 Tareas esperándote en One Brain (40). Presentalas antes que nada y preguntá ¿La encaramos? (skill arranque).";
+  for(i=0;i<40;i++) printf "\\n- «Tarea larga número %d con un título que ocupa lugar» (Lempriere): Fran te la asignó.", i;
   printf "\", \"period_key\":\"2026-07-25\", \"hello\":\"";
   for(i=0;i<30;i++) printf "Bienvenido a One Brain, la memoria del equipo (parrafo %d). ", i;
   printf "\"}";
@@ -1417,6 +1419,8 @@ printf '%s' "$OUT_FULL" | grep -q 'trabajo SIN GUARDAR'
 assert_eq "presupuesto: el aviso de trabajo sin guardar sobrevive al techo" 0 "$?"
 printf '%s' "$OUT_FULL" | grep -q 'onebrain-save'
 assert_eq "presupuesto: el canal de guardado sobrevive al techo" 0 "$?"
+printf '%s' "$OUT_FULL" | grep -q '¿La encaramos?'
+assert_eq "presupuesto: la regla de las tareas de arranque sobrevive al techo" 0 "$?"
 printf '%s' "$OUT_FULL" | grep -q 'api/synthesis$'
 assert_eq "presupuesto: la orden de curl de la síntesis llega ENTERA (no cortada al medio)" 0 "$?"
 printf '%s' "$OUT_FULL" | grep -qi 'antes de responder'
